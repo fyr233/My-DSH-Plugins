@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Seamless Continue",
+    "description": "Resumes an interrupted turn from the break: /continue continues the model's own output or tool loop without sending a \"continue\" message."
+  }
+}

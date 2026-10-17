@@ -1,0 +1,4 @@
+- insert:
+    - id: seamless-continue
+      name: '@local/dsh-plugin-seamless-continue'
+      config: {}

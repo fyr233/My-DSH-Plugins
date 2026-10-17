@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Window Capture",
+    "description": "Screenshot one desktop window by title or handle and hand the image to the Agent for analysis."
+  }
+}

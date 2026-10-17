@@ -1,0 +1,18 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+
+# OS noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor
+.vscode/*
+!.vscode/settings.json
+.idea/
+
+# Local scratch
+*.log
+*.tgz
+tmp/

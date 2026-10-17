@@ -1,0 +1,8 @@
+{
+  "name": "dsh-plugins",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A collection of independently installable DeepSeek Harness (dsh) plugin bundles.",
+  "license": "MIT"
+}

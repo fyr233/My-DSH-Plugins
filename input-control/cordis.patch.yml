@@ -1,0 +1,4 @@
+- insert:
+    - id: input-control
+      name: '@local/dsh-plugin-input-control'
+      config: {}

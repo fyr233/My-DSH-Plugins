@@ -1,0 +1,4 @@
+- insert:
+    - id: window-capture
+      name: '@local/dsh-plugin-window-capture'
+      config: {}
