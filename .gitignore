@@ -2,17 +2,17 @@
 node_modules/
 .pnpm-store/
 
-# OS noise
+# 操作系统杂项
 Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Editor
+# 编辑器
 .vscode/*
 !.vscode/settings.json
 .idea/
 
-# Local scratch
+# 本地临时文件
 *.log
 *.tgz
 tmp/

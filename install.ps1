@@ -1,59 +1,58 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Install (or re-link) every dsh plugin in this repository into a DSH profile.
+  把本仓库中的所有 DSH 插件安装（或重新链接）到指定的 DSH profile。
 
 .DESCRIPTION
-  Each subdirectory containing a package.json with `dsh.bundle.patch` is a DSH
-  bundle. This script registers each one into a profile with
+  `plugins/` 下每个含 `dsh.bundle.patch` 的 package.json 目录都是一个 DSH 组合包
+  （bundle）。本脚本对每个插件执行：
 
-      dsh plugin --profile <profile> add <absolute-path-to-plugin-dir>
+      dsh plugin --profile <profile> add <插件目录的绝对路径>
 
-  which is the documented install path: pnpm links the checkout, and dsh
-  appends the package to `dsh.profile.bundles` because the package declares
-  `dsh.bundle`.
+  这是文档规定的安装方式：pnpm 会链接该目录，而 dsh 因为包声明了
+  `dsh.bundle`，会把它追加进 profile 的 `dsh.profile.bundles`。
 
-  Re-running is the supported way to repair a profile after this repository
-  was moved: pnpm re-creates the links at the new absolute paths and the
-  bundle list is de-duplicated (a bundle is only ever listed once).
+  重复运行是修复“仓库被移动后插件失效”的正规做法：pnpm 会在新路径重建链接，
+  而已在 bundle 列表中的包不会被重复添加。
 
-  The script is safe to run against an existing profile. It does not edit
-  cordis.patch.yml and does not touch other installed bundles or plugins.
+  脚本可以安全地对已有的 profile 运行。它不会改动 cordis.patch.yml，
+  也不会影响其它已安装的 bundle 或插件。
 
 .PARAMETER Profile
-  Profile to install into. Defaults to $env:DSH_PROFILE, then "desktop".
-  The Desktop application owns the "desktop" profile, so it must be fully
-  quit before installing into it.
+  目标 profile。默认取 $env:DSH_PROFILE，再缺省为 "desktop"。
+  "desktop" profile 归桌面应用所有，安装前需要完全退出桌面应用。
 
 .PARAMETER Plugin
-  One or more plugin directory names to install. Defaults to every bundle
-  found in this repository.
+  只安装指定的插件目录名，可多个。默认安装本仓库中的全部插件。
 
 .PARAMETER DryRun
-  Print the commands that would run, without executing them.
+  只打印将要执行的命令，不实际运行。
 
 .EXAMPLE
-  ./install.ps1
-  Install every plugin into the active profile.
+  powershell -ExecutionPolicy Bypass -File .\install.ps1
+  把全部插件装入当前 profile。
 
 .EXAMPLE
-  ./install.ps1 -Profile web
-  Install every plugin into the "web" profile.
+  powershell -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
+  把全部插件装入 "web" profile。
 
 .EXAMPLE
-  ./install.ps1 -DryRun
-  Show what would be installed.
+  powershell -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
+  预览将安装什么。
 
 .NOTES
-  Requires: Windows PowerShell 5.1 or PowerShell 7+, and a `dsh` command on
-  PATH. Written in 5.1-compatible syntax so it runs out of the box, where the
-  default execution policy (RemoteSigned) blocks unsigned scripts:
+  需要 Windows PowerShell 5.1 或 PowerShell 7+，以及可用的 `dsh` 命令。
+
+  关于“未对文件进行数字签名”的错误：
+  本机执行策略为 RemoteSigned，从网络或克隆得到的 .ps1 没有数字签名时会被拒绝。
+  用下面的方式运行即可，不必修改系统执行策略：
 
       powershell -ExecutionPolicy Bypass -File .\install.ps1
 
-  or, from an already-running session:
+  如果文件带有“来自网络”标记，也可以先解除标记再直接运行：
 
-      Unblock-File .\install.ps1; .\install.ps1
+      Unblock-File .\install.ps1
+      .\install.ps1
 #>
 [CmdletBinding()]
 param(
@@ -65,28 +64,29 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$repoRoot = $PSScriptRoot
+$repoRoot   = $PSScriptRoot
+$pluginsDir = Join-Path $repoRoot 'plugins'
 
-function Write-Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
-function Write-Ok([string]$Message)   { Write-Host "  ok  $Message" -ForegroundColor Green }
-function Write-Warn2([string]$Message) { Write-Host "  !   $Message" -ForegroundColor Yellow }
+function Write-Step([string]$Message)  { Write-Host "==> $Message" -ForegroundColor Cyan }
+function Write-Ok([string]$Message)    { Write-Host "  成功  $Message" -ForegroundColor Green }
+function Write-Warn2([string]$Message) { Write-Host "  注意  $Message" -ForegroundColor Yellow }
 
-# --- resolve profile -------------------------------------------------------
+# --- 解析目标 profile -------------------------------------------------------
 if ([string]::IsNullOrWhiteSpace($Profile)) {
-    $Profile = if ($env:DSH_PROFILE) { $env:DSH_PROFILE } else { 'desktop' }
+    if ($env:DSH_PROFILE) { $Profile = $env:DSH_PROFILE } else { $Profile = 'desktop' }
 }
-Write-Step "Target profile: $Profile"
+Write-Step "目标 profile：$Profile"
 if ($Profile -eq 'desktop') {
-    Write-Warn2 "The 'desktop' profile is owned by the Desktop app; quit it fully before continuing."
+    Write-Warn2 "desktop profile 归桌面应用所有，请先完全退出 DeepSeek Harness 再继续。"
 }
 
-# --- locate dsh ------------------------------------------------------------
+# --- 定位 dsh 命令 ----------------------------------------------------------
 function Resolve-DshCommand {
     $found = Get-Command dsh -CommandType Application, ExternalScript -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($found) { return [pscustomobject]@{ Source = $found.Source } }
 
-    # The Desktop app ships a launcher that it does not always add to PATH.
+    # 桌面应用自带的启动器，有时不会加入 PATH。
     $candidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd')
         (Join-Path $env:ProgramFiles 'DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd')
@@ -94,8 +94,8 @@ function Resolve-DshCommand {
     )
     foreach ($candidate in $candidates) {
         if ($candidate -and (Test-Path $candidate)) {
-            Write-Warn2 "dsh is not on PATH; using the bundled launcher: $candidate"
-            Write-Warn2 "To make it permanent on this machine, add this directory to PATH: $(Split-Path $candidate)"
+            Write-Warn2 "PATH 中没有 dsh，改用桌面应用自带的启动器：$candidate"
+            Write-Warn2 "如需长期可用，可把该目录加入 PATH：$(Split-Path $candidate)"
             return [pscustomobject]@{ Source = $candidate }
         }
     }
@@ -104,87 +104,95 @@ function Resolve-DshCommand {
 
 $dshCommand = Resolve-DshCommand
 if (-not $dshCommand) {
-    throw "No 'dsh' command found on PATH, and no bundled Desktop launcher was found. Install the dsh CLI (or enable the Desktop app's command-line option) and retry."
+    throw "PATH 中找不到 dsh 命令，也未找到桌面应用自带的启动器。请安装 dsh CLI（或在桌面应用中启用命令行功能）后重试。"
 }
-Write-Step "Using dsh: $($dshCommand.Source)"
+Write-Step "使用 dsh：$($dshCommand.Source)"
 
-# --- discover bundles ------------------------------------------------------
-function Get-BundleDirs {
-    Get-ChildItem -Path $repoRoot -Directory |
-        Where-Object { Test-Path (Join-Path $_.FullName 'package.json') } |
-        Sort-Object Name
+# --- 发现插件 ---------------------------------------------------------------
+if (-not (Test-Path $pluginsDir)) {
+    throw "未找到插件目录：$pluginsDir"
 }
 
-$all = @(Get-BundleDirs)
+$all = @(Get-ChildItem -Path $pluginsDir -Directory |
+    Where-Object { Test-Path (Join-Path $_.FullName 'package.json') } |
+    Sort-Object Name)
+
 if ($Plugin) {
     $missing = @($Plugin | Where-Object { $_ -notin $all.Name })
     if ($missing.Count -gt 0) {
-        throw "Unknown plugin(s): $($missing -join ', '). Found: $($all.Name -join ', ')"
+        throw "未知的插件：$($missing -join '、')。可用插件：$(($all.Name) -join '、')"
     }
     $all = @($all | Where-Object { $_.Name -in $Plugin })
 }
-if ($all.Count -eq 0) { throw "No plugin directories with a package.json were found under $repoRoot." }
+if ($all.Count -eq 0) { throw "$pluginsDir 下没有任何含 package.json 的插件目录。" }
 
-# --- validate that each directory really is a dsh bundle -------------------
+# --- 校验每个目录确实是 DSH 组合包 ------------------------------------------
 $bundles = foreach ($dir in $all) {
     $manifest = Get-Content (Join-Path $dir.FullName 'package.json') -Raw | ConvertFrom-Json
+
     if (-not ($manifest.PSObject.Properties.Name -contains 'dsh') -or
         -not $manifest.dsh -or -not $manifest.dsh.bundle -or -not $manifest.dsh.bundle.patch) {
-        throw "$($dir.Name)/package.json does not declare dsh.bundle.patch, so dsh would install it as a plain dependency and never activate it."
+        throw "$($dir.Name)/package.json 未声明 dsh.bundle.patch，dsh 只会把它当作普通依赖安装，永远不会启用。"
     }
     if (-not $manifest.name -or -not $manifest.version) {
-        throw "$($dir.Name)/package.json must declare both name and version."
+        throw "$($dir.Name)/package.json 必须同时声明 name 与 version。"
     }
+
     $patchPath = Join-Path $dir.FullName $manifest.dsh.bundle.patch
-    if (-not (Test-Path $patchPath)) { throw "$($dir.Name): dsh.bundle.patch points at a missing file: $patchPath" }
+    if (-not (Test-Path $patchPath)) {
+        throw "$($dir.Name)：dsh.bundle.patch 指向的文件不存在：$patchPath"
+    }
+
     foreach ($entry in $manifest.files) {
         if ($entry -notmatch '[*?]' -and -not (Test-Path (Join-Path $dir.FullName $entry))) {
-            Write-Warn2 "$($dir.Name): files[] lists '$entry' but it does not exist."
+            Write-Warn2 "$($dir.Name)：files[] 中的 '$entry' 实际不存在。"
         }
     }
+
     [pscustomobject]@{
         Name    = $manifest.name
         Version = $manifest.version
         Dir     = $dir.FullName
-        Engines = if ($manifest.engines -and $manifest.engines.dsh) { $manifest.engines.dsh } else { '(undeclared)' }
+        Engines = if ($manifest.engines -and $manifest.engines.dsh) { $manifest.engines.dsh } else { '(未声明)' }
     }
 }
 
-Write-Step "Bundles to install ($($bundles.Count)):"
-$bundles | ForEach-Object { Write-Host ("  {0,-42} {1,-8} dsh {2}" -f $_.Name, $_.Version, $_.Engines) }
+Write-Step "将安装 $($bundles.Count) 个组合包："
+$bundles | ForEach-Object { Write-Host ("    {0,-42} {1,-8} dsh {2}" -f $_.Name, $_.Version, $_.Engines) }
 
-# --- install ---------------------------------------------------------------
+# --- 安装 -------------------------------------------------------------------
 $failed = @()
 foreach ($bundle in $bundles) {
     $arguments = @('plugin', '--profile', $Profile, 'add', $bundle.Dir)
     $rendered = "dsh " + (($arguments | ForEach-Object { if ($_ -match '\s') { "'$_'" } else { $_ } }) -join ' ')
 
     if ($DryRun) {
-        Write-Host "  [dry-run] $rendered"
+        Write-Host "    [预览] $rendered"
         continue
     }
 
-    Write-Step "Installing $($bundle.Name)"
+    Write-Step "正在安装 $($bundle.Name)"
     & $dshCommand.Source @arguments
     if ($LASTEXITCODE -ne 0) {
-        Write-Warn2 "$($bundle.Name) failed with exit code $LASTEXITCODE"
+        Write-Warn2 "$($bundle.Name) 失败，退出码 $LASTEXITCODE"
         $failed += $bundle.Name
     } else {
-        Write-Ok "$($bundle.Name) linked into profile '$Profile'"
+        Write-Ok "$($bundle.Name) 已链接进 profile「$Profile」"
     }
 }
 
-# --- summary ---------------------------------------------------------------
+# --- 汇总 -------------------------------------------------------------------
 if ($DryRun) {
-    Write-Step "Dry run complete; nothing was installed."
+    Write-Step "预览结束，未做任何改动。"
     exit 0
 }
 
 Write-Host ''
 if ($failed.Count -gt 0) {
-    Write-Warn2 "These bundles failed: $($failed -join ', ')"
-    throw "Install incomplete. Fix the errors above and re-run install.ps1."
+    Write-Warn2 "以下插件安装失败：$($failed -join '、')"
+    throw "安装未完成。请根据上方的错误修复后重新运行 install.ps1。"
 }
 
-Write-Step "Done. Restart DSH (or let HMR reload the profile) to activate the plugins."
-Write-Host "  Verify the layers with: dsh --profile $Profile --dump-config" -ForegroundColor DarkGray
+Write-Step "全部完成。重启 DSH（或等待 HMR 重新加载 profile）后生效。"
+Write-Host "  用下面的命令核对各插件层是否已加载：" -ForegroundColor DarkGray
+Write-Host "  dsh --profile $Profile --dump-config | Select-String 'window-capture|input-control|seamless-continue'" -ForegroundColor DarkGray
