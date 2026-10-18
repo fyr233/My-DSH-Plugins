@@ -130,7 +130,7 @@ CI（`.github/workflows/validate.yml`）在 Linux 与 Windows 上执行同一条
 | `peerDependencies` 的包同时出现在 `devDependencies` | 与宿主共享实例 + 本地检查 |
 | 入口导出 `apply(ctx, config)`（或默认导出服务类），且不混用 | Host 插件导出形式 |
 | 入口只用相对路径与 Node 内置模块，或已声明的包；不得导入 dsh 自带包 | workspace 插件无法解析宿主包 |
-| `locale/en.json` 的 `meta.displayName` / `meta.description`，以及图标格式与 256 KiB 上限 | 插件管理器显示元数据 |
+| `locale/en.json` 的 `meta.title` / `meta.description`（dsh 只读这两个键），以及图标格式与 256 KiB 上限 | 插件管理器的显示与搜索元数据 |
 | `files[]` 覆盖入口、patch、locale、图标 | `pnpm pack` / 发布不丢文件 |
 | 无 UTF-8 BOM；README 表格最新 | 集成与文档 |
 

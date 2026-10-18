@@ -255,19 +255,25 @@ async function checkPlugin({ dir, absoluteDir, manifest }) {
     if (/^locale\/[^/]+\.json$/u.test(path)) locales.push(path)
   }
   locales = locales.sort()
-  if (!locales.includes('locale/en.json')) called('缺少 locale/en.json：插件管理器读取 meta.displayName 与 meta.description')
+  if (!locales.includes('locale/en.json')) {
+    called('缺少 locale/en.json：插件管理器通过 <包名>/locale/*.json 读取 meta.title 与 meta.description')
+  }
   for (const locale of locales) {
     if (exported['./locale/*.json'] !== './locale/*.json') called('应导出 "./locale/*.json": "./locale/*.json"')
     const json = await readJson(join(absoluteDir, locale))
     if (json === undefined) continue
-    for (const key of ['displayName', 'description']) {
+    // dsh reads exactly `meta.title` and `meta.description` (textOf(meta?.title)).
+    // Any other key is ignored silently, so a wrong key shows the package name.
+    for (const key of ['title', 'description']) {
       const value = json.meta?.[key]
       if (typeof value !== 'string' || value.trim() === '') {
-        error(`plugins/${dir}/${locale}`, `meta.${key} 必须是非空字符串`)
+        error(`plugins/${dir}/${locale}`, `meta.${key} 必须是非空字符串；插件管理器只读取 meta.title 与 meta.description`)
       }
     }
-    if (json.meta?.title !== undefined) {
-      warn(`plugins/${dir}/${locale}`, 'meta.title 是旧键名；显示名放在 meta.displayName')
+    for (const key of Object.keys(json.meta ?? {})) {
+      if (key !== 'title' && key !== 'description') {
+        warn(`plugins/${dir}/${locale}`, `meta.${key} 不会显示：插件管理器只读取 meta.title 与 meta.description`)
+      }
     }
     for (const key of Object.keys(json)) {
       if (key !== 'meta') warn(`plugins/${dir}/${locale}`, `未知的顶层键 "${key}"（只允许 meta）`)
@@ -439,7 +445,7 @@ async function checkEntry(entryRel, entryAbsolute, manifest) {
 function renderRows(bundles) {
   return Promise.all(bundles.map(async ({ dir, manifest, catalog }) => {
     const locale = await readJson(join(PLUGINS_DIR, dir, 'locale', 'zh.json')).catch(() => undefined)
-    const title = locale?.meta?.displayName ?? dir
+    const title = locale?.meta?.title ?? dir
     const tools = await toolsOf(dir, manifest)
     const tags = Array.isArray(catalog?.tags) ? catalog.tags.map((tag) => String(tag).toLowerCase()) : []
     const platforms = tags.includes('windows') ? 'Windows' : '任意'

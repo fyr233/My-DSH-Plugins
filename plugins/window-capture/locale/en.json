@@ -1,6 +1,6 @@
 {
   "meta": {
-    "displayName": "Window Capture",
+    "title": "Window Capture",
     "description": "Screenshot one desktop window or the whole screen by title, handle or process, and hand the image to the Agent for analysis."
   }
 }

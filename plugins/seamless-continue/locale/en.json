@@ -1,6 +1,6 @@
 {
   "meta": {
-    "displayName": "Seamless Continue",
+    "title": "Seamless Continue",
     "description": "Resume an interrupted turn with /continue (continue / resume): the model continues its own output or tool loop instead of restarting."
   }
 }

@@ -13,8 +13,8 @@ plugins/<目录名>/
 ├── index.js              # ESM 入口：export const name / inject / Config, export function apply
 ├── <worker>.cjs          # 可选：需要在宿主进程外运行的工作进程
 ├── icon.svg              # 或 PNG/JPEG/WebP（≤256 KiB）
-├── locale/en.json        # meta.displayName + meta.description（必填）
-├── locale/zh.json        # 用户语言版本；displayName 用中文
+├── locale/en.json        # meta.title + meta.description（必填，键名不能改）
+├── locale/zh.json        # 用户语言版本；meta.title 用中文
 └── test/check.mjs        # 零依赖自检（node test/check.mjs）
 ```
 
@@ -56,14 +56,17 @@ plugins/<目录名>/
 
 ## 显示名称与描述（搜索靠它）
 
-插件管理器的搜索框匹配卡片的**标题与描述**，所以：
+插件管理器用 Node 解析 `<包名>/locale/<语言>.json`，并且**只读取 `meta.title` 与
+`meta.description`**（`textOf(meta?.title)`）。写成 `displayName` 等其他键会被静默忽略，
+卡片标题就会退回包名。搜索框匹配的正是卡片的标题与描述，所以：
 
-- `locale/zh.json` 的 `meta.displayName` 用中文（如「窗口截图」），不要只写英文或包名。
+- 每个 `locale/*.json` 都必须有 `meta.title`（显示名）与 `meta.description`。
+- `locale/zh.json` 的 `meta.title` 用中文（如「窗口截图」），不要只写英文或包名。
 - `meta.description` 写给用户看的一句话，并**带上用户会搜的关键词**：中英文动作词
   （截屏 / 截图 / screenshot / capture）、以及对外暴露的工具名或命令名
-  （`capture_window`、`/continue`）。当前用户语言没有对应描述时，界面会回退到
-  `locale/en.json`，所以英文描述也要覆盖同一批关键词。
-- 示例：`"description": "截取某个程序窗口或整个桌面（screenshot / capture），把图像直接交给 Agent 分析。"`
+  （`capture_window`、`/continue`）。描述里也带上其他插件共同涉及的词（例如「截图」）
+  会让搜索同时命中多个插件——那是子串匹配的正常结果，不是命名错误。
+- 示例：`"title": "窗口截图"`，`"description": "截取某个程序窗口或整个桌面（截图 / 截屏 / screenshot / capture），把图像直接交给 Agent 分析。"`
 
 ## cordis.patch.yml
 
