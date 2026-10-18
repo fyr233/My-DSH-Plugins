@@ -10,7 +10,7 @@
 | [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.1.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
-| [权限申请提示音](./plugins/approval-sound) | `@local/dsh-plugin-approval-sound` | 1.0.0 | — | Windows |
+| [权限申请提示音](./plugins/approval-sound) | `@local/dsh-plugin-approval-sound` | 2.0.0 | — | Windows |
 <!-- END PLUGINS -->
 
 ## 各插件说明
@@ -28,7 +28,8 @@
   载体消息，在接收该消息的那一步由 `agent/pre-step` 瀑布处理，并为被中断时缺失结果的工具
   调用补上说明性的恢复结果。持久化日志、GUI 记录、fork 与回放的行为都保持不变。
 - **approval-sound**：dsh 弹出权限申请（`approval/request`）时播放提示音，后台也能注意到。
-  它以直通方式监听瀑布事件，不改变审批结果；提示音在 `powershell.exe` 子进程里用
-  `System.Media.SoundPlayer` 播放，可配置音效 / wav 文件、次数、间隔、节流与静音条件。
+  它以直通方式监听瀑布事件，不改变审批结果；Windows 上在 dsh 进程内经 koffi 调用
+  `winmm!sndPlaySoundW` 播放（不启动子进程、不用 PowerShell），Linux/macOS 用
+  `paplay`/`aplay`/`afplay`；可配置 wav 文件、节流与静音条件。
 
 新增插件时请阅读 [CONTRIBUTING.md](../CONTRIBUTING.md)。

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "权限申请提示音",
-    "description": "dsh 弹出权限申请（approval）时播放提示音，后台运行也能及时注意到；可调音量、次数、间隔、音效与静音条件。"
+    "description": "dsh 弹出权限申请（approval）时让终端响铃（\\a），后台也能及时注意到；不调用 PowerShell，跨系统可用，可调次数、间隔、节流与静音。"
   }
 }

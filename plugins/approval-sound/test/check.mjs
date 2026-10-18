@@ -1,93 +1,115 @@
 /**
- * Check the approval-sound plugin: config validation, the cue plan (throttle,
- * mute list, background rule), and the PowerShell program it builds.
+ * Check the approval-sound plugin: config validation, the playback plan
+ * (throttle, mute list, background rule), the generated WAV, koffi discovery,
+ * and the non-Windows player fallback.
  * Run: node plugins/approval-sound/test/check.mjs
  */
 import assert from 'node:assert/strict'
 import {
   Config,
-  buildSoundScript,
+  bindWindowsPlayer,
+  buildBellWav,
   createCueState,
+  findKoffi,
   planCue,
-  resolveSoundFile,
-  soundArgv,
+  playerCommand,
 } from '../index.js'
 
 const validate = (value) => Config['~standard'].validate(value)
 
 // --- config ------------------------------------------------------------------
 assert.equal(Config['~standard'].version, 1, 'config uses the Standard Schema protocol')
-
-const defaults = validate(undefined)
-assert.deepEqual(defaults.value, {
+assert.deepEqual(validate(undefined).value, {
   enabled: true,
-  sound: 'exclamation',
   soundFile: '',
-  repeats: 1,
-  gapMs: 700,
   minIntervalMs: 3000,
   onlyWhenBackground: false,
   mutedTools: [],
 }, 'defaults are filled in')
-
-assert.equal(validate({ sound: 'asterisk' }).value.sound, 'asterisk', 'a known sound is accepted')
-assert.equal(validate({ sound: 'asterisk' }).value.repeats, 1, 'other defaults survive a partial override')
-assert.ok(validate({ sound: 'trumpet' }).issues, 'an unknown sound is rejected')
-assert.ok(validate({ repeats: 0 }).issues, 'repeats must be at least 1')
-assert.ok(validate({ repeats: 11 }).issues, 'repeats is capped')
+assert.equal(validate({ minIntervalMs: 0 }).value.minIntervalMs, 0, 'a known value is accepted')
+assert.equal(validate({ minIntervalMs: 0 }).value.enabled, true, 'other defaults survive a partial override')
 assert.ok(validate({ minIntervalMs: -1 }).issues, 'a negative interval is rejected')
 assert.ok(validate({ mutedTools: 'bash' }).issues, 'mutedTools must be an array')
-assert.ok(validate({ mute: [] }).issues, 'unknown keys are rejected')
+assert.ok(validate({ repeats: 2 }).issues, 'the retired ring keys are rejected')
+assert.ok(validate({ soundFile: 3 }).issues, 'soundFile must be a string')
 assert.ok(validate([]).issues, 'a non-object config is rejected')
 
-// --- cue plan ----------------------------------------------------------------
+// --- playback plan -----------------------------------------------------------
 const request = { agent: { id: 'a1' }, toolName: 'pwsh' }
 {
-  const config = defaults.value
+  const config = validate(undefined).value
   const state = createCueState()
-  const plan = planCue(request, config, state, 10_000)
-  assert.deepEqual(plan, { sound: 'exclamation', soundFile: '', repeats: 1, gapMs: 700 }, 'the first request plays')
+  assert.deepEqual(planCue(request, config, state, 10_000), { soundFile: '' }, 'the first request plays')
   assert.equal(planCue(request, config, state, 10_500), undefined, 'a burst is throttled')
   assert.ok(planCue(request, config, state, 13_000), 'the throttle window laps and plays again')
 }
-assert.equal(planCue(request, { ...defaults.value, enabled: false }, createCueState()), undefined, 'enabled false is silent')
+assert.equal(planCue(request, { ...validate({}).value, enabled: false }, createCueState()), undefined, 'enabled false is silent')
 assert.equal(
-  planCue(request, { ...defaults.value, mutedTools: ['pwsh'] }, createCueState()),
+  planCue(request, { ...validate({}).value, mutedTools: ['pwsh'] }, createCueState()),
   undefined,
   'a muted tool is silent',
 )
 assert.ok(
-  planCue({ ...request, toolName: 'fs' }, { ...defaults.value, mutedTools: ['pwsh'] }, createCueState()),
+  planCue({ ...request, toolName: 'fs' }, { ...validate({}).value, mutedTools: ['pwsh'] }, createCueState()),
   'an unmuted tool still plays',
 )
 assert.equal(
-  planCue({ ...request, focus: 'focused' }, { ...defaults.value, onlyWhenBackground: true }, createCueState()),
+  planCue({ ...request, focus: 'focused' }, { ...validate({}).value, onlyWhenBackground: true }, createCueState()),
   undefined,
   'onlyWhenBackground skips a focused request',
 )
-assert.ok(
-  planCue({ ...request, focus: 'background' }, { ...defaults.value, onlyWhenBackground: true }, createCueState()),
-  'onlyWhenBackground still plays in the background',
+
+// --- the generated WAV -------------------------------------------------------
+const wav = buildBellWav()
+assert.equal(wav.subarray(0, 4).toString('latin1'), 'RIFF', 'RIFF header')
+assert.equal(wav.readUInt32LE(4), wav.length - 8, 'RIFF size covers the payload')
+assert.equal(wav.subarray(8, 12).toString('latin1'), 'WAVE', 'WAVE form')
+assert.equal(wav.readUInt16LE(20), 1, 'PCM format')
+assert.equal(wav.readUInt16LE(22), 1, 'mono')
+assert.equal(wav.readUInt16LE(34), 16, '16-bit samples')
+assert.equal(wav.subarray(36, 40).toString('latin1'), 'data', 'data chunk')
+assert.equal(wav.readUInt32LE(40), wav.length - 44, 'data length matches')
+assert.ok(wav.length > 20_000 && wav.length < 60_000, 'the cue is short but non-trivial')
+assert.ok(wav.subarray(44).some((byte) => byte !== 0), 'the payload carries audio')
+
+// --- koffi discovery ---------------------------------------------------------
+const installRoot = 'C:\\Program Files\\DeepSeek Harness'
+const bundled = `${installRoot}\\resources\\app.asar.unpacked\\dsh\\node_modules\\koffi\\package.json`
+const exe = `${installRoot}\\DeepSeek Harness.exe`
+assert.equal(
+  findKoffi(exe, (path) => path === bundled),
+  `${installRoot}\\resources\\app.asar.unpacked\\dsh\\node_modules\\koffi`,
+  'the shipped koffi is found from the Host executable',
+)
+assert.equal(findKoffi(exe, () => false), undefined, 'a missing install reports nothing')
+assert.equal(
+  bindWindowsPlayer(createCueState(), { logger: { warn() {} } }, 'linux', exe, () => true),
+  undefined,
+  'no Windows binding off Windows',
 )
 
-// --- the program the child runs ----------------------------------------------
-const systemScript = buildSoundScript({ sound: 'asterisk', soundFile: '', repeats: 2, gapMs: 500 })
-assert.match(systemScript, /SystemSounds\]::Asterisk\.Play\(\)/u)
-assert.match(systemScript, /Start-Sleep -Milliseconds 500/u, 'the gap is honored')
-assert.equal(systemScript.split('::Asterisk.Play()').length - 1, 2, 'repeats are honored')
-assert.match(systemScript, /Start-Sleep -Milliseconds 900/u, 'the child outlives Play()')
+// A silent logger records the one warning when koffi is absent.
+const warnings = []
+bindWindowsPlayer(
+  createCueState(),
+  { logger: { warn: (...parts) => warnings.push(parts.join(' ')) } },
+  'win32',
+  'C:\\nowhere\\dsh.exe',
+  () => false,
+)
+assert.equal(warnings.length, 1, 'a missing FFI warns once')
+assert.match(warnings[0], /koffi/iu)
 
-const fileScript = buildSoundScript({ sound: 'exclamation', soundFile: "C:\\a b\\o'k.wav", repeats: 1, gapMs: 0 })
-assert.match(fileScript, /New-Object System\.Media\.SoundPlayer 'C:\\a b\\o''k\.wav'\)\.PlaySync\(\)/u, 'quotes are escaped')
-
-const argv = soundArgv(systemScript)
-assert.equal(argv[0], 'powershell.exe')
-assert.ok(argv.includes('-NonInteractive'))
-assert.equal(argv.at(-1), systemScript)
-
-// --- sound file resolution ---------------------------------------------------
-assert.equal(resolveSoundFile({ soundFile: '' }, () => true), '', 'no file configured')
-assert.equal(resolveSoundFile({ soundFile: 'C:\\x.wav' }, () => true), 'C:\\x.wav', 'an existing file wins')
-assert.equal(resolveSoundFile({ soundFile: 'C:\\missing.wav' }, () => false), '', 'a stale path falls back')
+// --- non-Windows fallback ----------------------------------------------------
+assert.deepEqual(playerCommand('darwin', '/tmp/cue.wav'), { command: 'afplay', args: ['/tmp/cue.wav'] })
+assert.deepEqual(playerCommand('linux', '/tmp/cue.wav', () => true), { command: 'paplay', args: ['/tmp/cue.wav'] })
+assert.deepEqual(
+  playerCommand('linux', '/tmp/cue.wav', (name) => name === 'aplay'),
+  { command: 'aplay', args: ['-q', '/tmp/cue.wav'] },
+  'aplay is the ALSA fallback',
+)
+assert.equal(playerCommand('linux', '/tmp/cue.wav', () => false), undefined, 'no Linux player, no playback')
+assert.equal(playerCommand('freebsd', '/tmp/cue.wav'), undefined, 'an unknown platform stays silent')
+assert.equal(playerCommand('win32', 'C:\\x.wav'), undefined, 'Windows never spawns a process')
 
 console.log('approval-sound: all checks passed')

@@ -2,19 +2,34 @@
  * Approval alert sound: play a cue whenever dsh asks the user for approval, so
  * a prompt that appears while the app is in the background is noticed.
  *
- * The cue runs in a detached Windows PowerShell child process started through
- * `ctx.subprocess.spawn()`. That is deliberate: the Host runs in an Electron
- * main process where `console.beep()` and `child_process` shares are not
- * dependable, while a child PowerShell with `System.Media.SoundPlayer` always
- * owns a real console and plays the system sound (playback happens before the
- * child exits, so truncation is never a problem).
+ * How the cue is produced, and why it is not simpler:
+ *
+ * - dsh is an Electron application with no console, so a BEL written to stdout
+ *   or stderr reaches no device and stays silent.
+ * - Running `powershell.exe -Command` (or a hidden window-style variant) plays a
+ *   sound but trips HIPS products such as 火绒 ("PowerShell 静默运行").
+ * - `rundll32.exe <wav>,<export>` calls the export but also tries to load the
+ *   WAV as a DLL and pops "不是有效的 Win32 应用程序".
+ *
+ * So on Windows the plugin calls the audio API in-process through koffi, the
+ * FFI library dsh itself ships (N-API, so it loads unchanged inside Electron and
+ * in plain Node). No child process, no PowerShell, no compiler, no network.
+ * Linux and macOS use the system players (`paplay`/`aplay`, `afplay`), which
+ * neither HIPS conventions nor the absence of a console affect there.
+ *
+ * No audio file ships with the plugin: one is generated in memory and cached in
+ * the OS temp directory, so `files[]` stays plain text and the license is
+ * unambiguous. `soundFile` overrides it.
  *
  * The listener is a waterfall pass-through: it observes `approval/request`,
- * schedules the cue, and always returns whatever the remaining answerers
- * decide. A question the agent asks (`ask_user_question`) does NOT pass through
- * this event, so it stays silent.
+ * plays, and always returns whatever the remaining answerers decide. A question
+ * the agent asks (`ask_user_question`) does not pass through this event.
  */
-import { statSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 
 export const name = 'approval-sound'
 
@@ -49,33 +64,23 @@ export const Config = {
   },
 }
 
-const SOUNDS = ['exclamation', 'asterisk', 'beep', 'hand', 'question']
-const ONLY = ['all', 'background']
-
 const DEFAULTS = {
   enabled: true,
-  sound: 'exclamation',
   soundFile: '',
-  repeats: 1,
-  gapMs: 700,
   minIntervalMs: 3000,
   onlyWhenBackground: false,
   mutedTools: [],
 }
 
-const nonEmptyString = (value) => (typeof value === 'string' ? undefined : 'must be a string')
 const integerIn = (min, max) => (value) =>
   Number.isInteger(value) && value >= min && value <= max ? undefined : `must be an integer from ${min} to ${max}`
-const oneOf = (values) => (value) => (values.includes(value) ? undefined : `must be one of ${values.join(', ')}`)
+const boolean = (value) => (typeof value === 'boolean' ? undefined : 'must be a boolean')
 
 const CHECKS = {
-  enabled: (value) => (typeof value === 'boolean' ? undefined : 'must be a boolean'),
-  sound: oneOf(SOUNDS),
-  soundFile: nonEmptyString,
-  repeats: integerIn(1, 10),
-  gapMs: integerIn(0, 10000),
+  enabled: boolean,
+  soundFile: (value) => (typeof value === 'string' ? undefined : 'must be a string path'),
   minIntervalMs: integerIn(0, 600000),
-  onlyWhenBackground: (value) => (typeof value === 'boolean' ? undefined : 'must be a boolean'),
+  onlyWhenBackground: boolean,
   mutedTools: (value) => (Array.isArray(value) && value.every((item) => typeof item === 'string')
     ? undefined
     : 'must be an array of tool names'),
@@ -83,11 +88,11 @@ const CHECKS = {
 
 /** Instantiated by apply() so one plugin load never bleeds into the next. */
 export function createCueState() {
-  return { lastPlayedAt: 0 }
+  return { lastPlayedAt: 0, builtinFile: undefined, ffi: undefined, ffiTried: false }
 }
 
 /**
- * Decide whether one approval request should play a cue.
+ * Decide whether one approval request should play.
  * @param request - the `approval/request` payload.
  * @param config - resolved config.
  * @param state - throttle state shared across requests.
@@ -101,78 +106,224 @@ export function planCue(request, config, state, now = Date.now()) {
   if (config.onlyWhenBackground && request?.focus === 'focused') return undefined
   if (now - state.lastPlayedAt < config.minIntervalMs) return undefined
   state.lastPlayedAt = now
-  return {
-    sound: config.sound,
-    soundFile: config.soundFile,
-    repeats: config.repeats,
-    gapMs: config.gapMs,
-  }
-}
-
-const SYSTEM_SOUND_MEMBERS = {
-  exclamation: 'Exclamation',
-  asterisk: 'Asterisk',
-  beep: 'Beep',
-  hand: 'Hand',
-  question: 'Question',
+  return { soundFile: config.soundFile }
 }
 
 /**
- * Build the Windows PowerShell program that plays one plan.
- * @param plan - the plan from {@link planCue}.
- * @returns a script that plays every repeat, then exits.
+ * A two-tone "ding-dong" cue: 880 Hz then 1175 Hz, each with a linear fade so
+ * no click is audible. 16-bit mono PCM at 22.05 kHz, about half a second.
+ * @returns WAV file bytes.
  */
-export function buildSoundScript(plan) {
-  const lines = ["$ErrorActionPreference = 'SilentlyContinue'"]
-  for (let index = 0; index < plan.repeats; index += 1) {
-    if (index > 0 && plan.gapMs > 0) lines.push(`Start-Sleep -Milliseconds ${plan.gapMs}`)
-    if (plan.soundFile !== '') {
-      const escaped = plan.soundFile.replace(/'/gu, "''")
-      lines.push(`(New-Object System.Media.SoundPlayer '${escaped}').PlaySync()`)
-    } else {
-      const member = SYSTEM_SOUND_MEMBERS[plan.sound] ?? SYSTEM_SOUND_MEMBERS.exclamation
-      lines.push(`[System.Media.SystemSounds]::${member}.Play()`)
-    }
-  }
-  // System.Media's Play() is asynchronous; keep the child alive long enough for
-  // the device to drain instead of cutting the cue off on exit.
-  lines.push('Start-Sleep -Milliseconds 900')
-  return lines.join('; ')
-}
-
-/**
- * The child command line used on Windows.
- * @param script - the program from {@link buildSoundScript}.
- * @returns argv for `subprocess.spawn`.
- */
-export function soundArgv(script) {
-  return [
-    'powershell.exe',
-    '-NoProfile',
-    '-NonInteractive',
-    '-WindowStyle',
-    'Hidden',
-    '-Command',
-    script,
+export function buildBellWav() {
+  const rate = 22050
+  const tones = [
+    { hertz: 880, seconds: 0.22 },
+    { hertz: 1175, seconds: 0.3 },
   ]
+  const samples = tones.reduce((total, tone) => total + Math.round(tone.seconds * rate), 0)
+  const data = Buffer.alloc(samples * 2)
+  let offset = 0
+  for (const tone of tones) {
+    const frames = Math.round(tone.seconds * rate)
+    for (let index = 0; index < frames; index += 1) {
+      const seconds = index / rate
+      const fadeIn = Math.min(1, seconds / 0.01)
+      const fadeOut = Math.min(1, (tone.seconds - seconds) / 0.12)
+      const envelope = Math.max(0, Math.min(fadeIn, fadeOut))
+      const value = Math.sin(2 * Math.PI * tone.hertz * seconds) * envelope * 0.5
+      data.writeInt16LE(Math.round(value * 32767), (offset + index) * 2)
+    }
+    offset += frames
+  }
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0, 'latin1')
+  header.writeUInt32LE(36 + data.length, 4)
+  header.write('WAVE', 8, 'latin1')
+  header.write('fmt ', 12, 'latin1')
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(rate, 24)
+  header.writeUInt32LE(rate * 2, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36, 'latin1')
+  header.writeUInt32LE(data.length, 40)
+  return Buffer.concat([header, data])
 }
 
 /**
- * A sound file configured by the user must exist; a stale path would silently
- * mute the alert. Reported through the plugin logger, not thrown, so one bad
- * value never disables the whole plugin.
- * @param config - resolved config.
- * @returns whether a substituted/system sound should be used instead.
+ * Materialize the built-in cue once per plugin load.
+ * @param state - cue state; caches the produced path.
+ * @returns the WAV path.
  */
-export function resolveSoundFile(config, exists = existsOnDisk) {
-  if (typeof config.soundFile !== 'string' || config.soundFile.trim() === '') return ''
-  return exists(config.soundFile.trim()) ? config.soundFile.trim() : ''
+export function builtinSoundFile(state) {
+  if (state.builtinFile !== undefined && existsSync(state.builtinFile)) return state.builtinFile
+  const dir = join(tmpdir(), 'dsh-approval-sound')
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, 'ding-dong.wav')
+  writeFileSync(path, buildBellWav())
+  state.builtinFile = path
+  return path
 }
 
-function existsOnDisk(path) {
+/**
+ * Pick the file to play: the configured one when it exists, else the built-in.
+ * @param plan - the plan from {@link planCue}.
+ * @param state - cue state.
+ * @param exists - predicate injectable for tests.
+ * @returns the WAV path to play.
+ */
+export function resolveSoundFile(plan, state, exists = isFile) {
+  const wanted = typeof plan.soundFile === 'string' ? plan.soundFile.trim() : ''
+  if (wanted !== '' && exists(wanted)) return wanted
+  return builtinSoundFile(state)
+}
+
+function isFile(path) {
   try {
     return statSync(path).isFile()
   } catch {
+    return false
+  }
+}
+
+/**
+ * Locate koffi, the FFI library dsh ships.
+ *
+ * dsh's own packages cannot be imported by name from a profile-linked plugin
+ * (the profile's ancestor chain does not see the dsh installation), so this
+ * walks up from the Host executable to the installation root and tries the two
+ * layouts that ship: `resources/app.asar.unpacked/dsh/node_modules/koffi`
+ * (native binaries must live outside an asar) and a plain `node_modules/koffi`
+ * for source checkouts.
+ *
+ * @param execPath - the Host executable (`process.execPath`).
+ * @param exists - file predicate, injectable for tests.
+ * @returns the koffi package directory, or undefined.
+ */
+export function findKoffi(execPath, exists = existsSync) {
+  const candidates = []
+  let dir = dirname(execPath)
+  for (let depth = 0; depth < 6; depth += 1) {
+    candidates.push(join(dir, 'resources', 'app.asar.unpacked', 'dsh', 'node_modules', 'koffi'))
+    candidates.push(join(dir, 'node_modules', 'koffi'))
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  for (const candidate of candidates) {
+    if (exists(join(candidate, 'package.json'))) return candidate
+  }
+  return undefined
+}
+
+/**
+ * Load the koffi module from a directory, through whichever loader this
+ * runtime offers (`createRequire` in Node, `require` in an addon host).
+ *
+ * The plugin is ESM, so it has no ambient `require`: resolve one from this
+ * module's own URL, which works in plain Node and inside Electron alike.
+ * @param directory - the koffi package directory.
+ * @returns the koffi namespace.
+ */
+export function loadKoffi(directory) {
+  const loader = createRequire(import.meta.url)
+  return loader(join(directory, 'index.cjs'))
+}
+
+/**
+ * Bind the Windows playback entry point once per plugin load.
+ * @param state - cue state; caches the binding.
+ * @param ctx - plugin context, for the one warning when it is unavailable.
+ * @param platform - `process.platform`.
+ * @param execPath - `process.execPath`.
+ * @param exists - file predicate, injectable for tests.
+ * @returns the `sndPlaySoundW` binding, or undefined when unavailable.
+ */
+export function bindWindowsPlayer(state, ctx, platform = process.platform, execPath = process.execPath, exists = existsSync) {
+  if (platform !== 'win32') return undefined
+  if (state.ffiTried) return state.ffi
+  state.ffiTried = true
+  try {
+    const directory = findKoffi(execPath, exists)
+    if (directory === undefined) {
+      ctx.logger?.warn?.('approval-sound: koffi was not found under the dsh installation; the cue stays silent')
+      return undefined
+    }
+    const koffi = loadKoffi(directory)
+    if (koffi === undefined) {
+      ctx.logger?.warn?.('approval-sound: this runtime cannot load a CommonJS FFI module; the cue stays silent')
+      return undefined
+    }
+    const winmm = koffi.load('winmm.dll')
+    // SND_FILENAME is the default for a path; SND_ASYNC returns immediately;
+    // SND_NODEFAULT keeps a broken file silent instead of beeping.
+    const sndPlaySoundW = winmm.func('bool __stdcall sndPlaySoundW(str16 lpszSound, uint flags)')
+    state.ffi = (file) => sndPlaySoundW(file, 1 | 0x00020000)
+    return state.ffi
+  } catch (error) {
+    ctx.logger?.warn?.('approval-sound: could not bind winmm: %s', String(error))
+    return undefined
+  }
+}
+
+/**
+ * The external player used outside Windows.
+ * @param platform - `process.platform`.
+ * @param file - the WAV path.
+ * @param hasPlayer - predicate for optional executables (injectable for tests).
+ * @returns `{ command, args }`, or undefined.
+ */
+export function playerCommand(platform, file, hasPlayer = () => true) {
+  if (platform === 'darwin') return { command: 'afplay', args: [file] }
+  if (platform === 'linux') {
+    if (hasPlayer('paplay')) return { command: 'paplay', args: [file] }
+    if (hasPlayer('aplay')) return { command: 'aplay', args: ['-q', file] }
+  }
+  return undefined
+}
+
+/**
+ * Play the cue for one request without blocking the approval waterfall.
+ * @param ctx - plugin context.
+ * @param request - the `approval/request` payload.
+ * @param config - resolved config.
+ * @param state - throttle state.
+ * @returns whether a cue was played.
+ */
+export function playCue(ctx, request, config, state) {
+  const plan = planCue(request, config, state)
+  if (plan === undefined) return false
+  const file = resolveSoundFile(plan, state)
+
+  if (process.platform === 'win32') {
+    const play = bindWindowsPlayer(state, ctx)
+    if (play === undefined) return false
+    try {
+      // sndPlaySoundW returns TRUE once the sound is queued; FALSE means the
+      // device refused it (or the file is unreadable).
+      return play(file) !== false
+    } catch (error) {
+      ctx.logger?.warn?.('approval-sound: winmm playback failed: %s', String(error))
+      return false
+    }
+  }
+
+  const command = playerCommand(process.platform, file)
+  if (command === undefined) {
+    ctx.logger?.warn?.('approval-sound: no WAV player known for platform %s', process.platform)
+    return false
+  }
+  try {
+    const child = spawn(command.command, command.args, { stdio: 'ignore', detached: true })
+    child.unref()
+    child.on('error', (error) => {
+      ctx.logger?.warn?.('approval-sound: could not start %s: %s', command.command, String(error))
+    })
+    return true
+  } catch (error) {
+    ctx.logger?.warn?.('approval-sound: could not start %s: %s', command.command, String(error))
     return false
   }
 }
@@ -190,39 +341,9 @@ export function apply(ctx, config = DEFAULTS) {
     try {
       playCue(ctx, request, settings, state)
     } catch (error) {
-      ctx.logger?.warn?.('approval-sound: could not play the approval cue: %s', String(error))
+      ctx.logger?.warn?.('approval-sound: could not play the cue: %s', String(error))
     }
     return next()
   })
   if (typeof dispose === 'function') ctx.effect(() => dispose)
-}
-
-/**
- * Play the cue for one request without blocking the approval waterfall.
- * @param ctx - plugin context.
- * @param request - the `approval/request` payload.
- * @param config - resolved config.
- * @param state - throttle state.
- * @returns whether a cue was started.
- */
-export function playCue(ctx, request, config, state) {
-  if (process.platform !== 'win32') return false
-  const plan = planCue(request, config, state)
-  if (plan === undefined) return false
-  const soundFile = resolveSoundFile(plan, existsOnDisk)
-  if (plan.soundFile !== '' && soundFile === '') {
-    ctx.logger?.warn?.('approval-sound: soundFile %s does not exist; using the system sound', plan.soundFile)
-  }
-  const subprocess = ctx.get('subprocess')
-  if (subprocess === undefined) {
-    ctx.logger?.warn?.('approval-sound: no subprocess service in this composition; the cue is skipped')
-    return false
-  }
-  subprocess.spawn({
-    argv: soundArgv(buildSoundScript({ ...plan, soundFile })),
-    cwd: process.cwd(),
-    stdio: { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' },
-    graceMs: 1500 + plan.repeats * (plan.gapMs + 1200),
-  })
-  return true
 }
