@@ -1,0 +1,4 @@
+- insert:
+    - id: approval-sound
+      name: '@local/dsh-plugin-approval-sound'
+      config: {}

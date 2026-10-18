@@ -13,6 +13,7 @@
 | [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.1.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
+| [权限申请提示音](./plugins/approval-sound) | `@local/dsh-plugin-approval-sound` | 1.0.0 | — | Windows |
 <!-- END PLUGINS -->
 
 `window-capture` 与 `input-control` 设计为配合使用：先截图，再按截图中看到的坐标操作，
@@ -24,10 +25,11 @@
   版本范围不匹配时 dsh 会拒绝加载该组合包。
 - **Node.js ≥ 22**（校验器与自检用它；`window-capture` / `input-control` 还需要用运行 dsh 的
   Node 可执行文件启动工作进程，这是 dsh 运行环境自带的）。
-- **Windows**：`window-capture` 与 `input-control` 仅支持 Windows，在其它平台会返回明确的
-  `NOT_WINDOWS` 错误，而不是静默出错。
-- `window-capture` / `input-control` 依赖 profile 中已启用的 `subprocess` 服务。桌面应用默认
-  包含它；自定义组合里缺了它时，工具会返回 `NO_SUBPROCESS`，不会让插件加载失败。
+- **Windows**：`window-capture`、`input-control` 与 `approval-sound` 仅支持 Windows；
+  前两个在其它平台返回明确的 `NOT_WINDOWS` 错误，`approval-sound` 在非 Windows 上静默不发声。
+- `window-capture` / `input-control` / `approval-sound` 依赖 profile 中已启用的 `subprocess` 服务。
+  桌面应用默认包含它；自定义组合里缺了它时，前两个插件的工具返回 `NO_SUBPROCESS`，
+  `approval-sound` 照常加载但不发声，插件本身都不受影响。
 
 ## 安装
 
@@ -153,7 +155,35 @@ CI（`.github/workflows/validate.yml`）在 Linux 与 Windows 上执行同一条
 - id: seamless-continue
   name: '@local/dsh-plugin-seamless-continue'
   config: {}
+
+- id: approval-sound
+  name: '@local/dsh-plugin-approval-sound'
+  config: {}
 ```
+
+### 权限申请提示音（approval-sound）
+
+dsh 弹出权限申请时播放提示音，后台也能注意到。所有键都可选：
+
+```yaml
+- id: approval-sound
+  name: '@local/dsh-plugin-approval-sound'
+  config:
+    sound: exclamation        # exclamation | asterisk | beep | hand | question
+    soundFile: ''             # 非空时改播这个 wav 文件，例如 C:\Windows\Media\Alarm01.wav
+    repeats: 2                # 1–10
+    gapMs: 700                # 两次之间的间隔
+    minIntervalMs: 3000       # 同一时间窗内最多响应一次，避免连续请求刷屏
+    onlyWhenBackground: false # true 时只在 dsh 不在前台才响（需要宿主提供焦点信息）
+    mutedTools: ['ask_user_question']  # 不想为这些工具的名字发声
+    enabled: true
+```
+
+声音由 `powershell.exe` 子进程通过 `System.Media.SoundPlayer` 播放，音量跟随系统提示音设置；
+插件只监听 `approval/request`，以直通方式返回，不改变任何审批结果，也不会自动批准任何请求。
+智能体自己发起的 `ask_user_question` 不经过这个事件，因此不会响。
+`onlyWhenBackground` 需要宿主在请求里提供焦点信息；当前 dsh 的 `approval/request` 载荷不含该字段，
+所以默认保持 `false`，该开关只在宿主以后提供时才会生效。
 
 ## 测试插件
 

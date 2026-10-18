@@ -18,6 +18,10 @@
     {
       "dir": "seamless-continue",
       "tags": ["conversation", "commands"]
+    },
+    {
+      "dir": "approval-sound",
+      "tags": ["approval", "notification", "windows"]
     }
   ]
 }
