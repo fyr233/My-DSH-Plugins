@@ -176,20 +176,30 @@ dsh 弹出权限申请时播放提示音，后台也能注意到。所有键都�
     enabled: true
 ```
 
-**实现方式**（踩过的坑都记在这里）：dsh 是 Electron 应用，没有控制台，向 stdout/stderr 写
-`\a` 到了设备，是静音的；用 `powershell.exe` 播放会触发火绒的“PowerShell 静默运行”拦截；
-`rundll32.exe <wav>,<导出名>` 会顺手把 wav 当 DLL 加载，弹出“不是有效的 Win32 应用程序”。
+**实现方式**（踩过的坑都记在这里）：
 
-所以 Windows 上改成**进程内**调用：通过 dsh 自带的 FFI 库 koffi
-（`resources/app.asar.unpacked/dsh/node_modules/koffi`，N-API 构建，Electron 与 Node 通用）
-调用 `winmm.dll!sndPlaySoundW(path, SND_ASYNC)`。不启动任何子进程、不用 PowerShell、
-不需要编译器，也不需要联网。找不到 koffi 时只记一条警告，其它功能不受影响。
+- dsh 是 Electron 应用，没有控制台，向 stdout/stderr 写 `\a` 到不了设备——静音；
+- `powershell.exe` 播放会触发火绒的“PowerShell 静默运行”拦截；
+- `rundll32.exe <wav>,<导出名>` 会把 wav 当 DLL 加载，弹出“不是有效的 Win32 应用程序”；
+- Windows 上**异步** `sndPlaySoundW(..., SND_ASYNC)` 在 dsh 主进程里 0 ms 返回、不出声
+  （没有消息循环/音频会话），**同步**调用才真正播完（实测约 2.3 s）。
+
+所以 Windows 上通过 dsh 自带的 FFI 库 koffi（`resources/app.asar.unpacked/dsh/node_modules/koffi`，
+N-API 构建，Electron 与 Node 通用）在**进程内同步**调用 `winmm.dll!sndPlaySoundW(path, SND_FILENAME)`。
+不启动任何子进程、不用 PowerShell、不需要编译器，也不需要联网；找不到 koffi 时只记一条警告。
 Linux 用 `paplay`（或 `aplay`），macOS 用 `afplay`。
 
 插件不带音频文件：内置的“叮咚”提示音在首次使用时于内存中生成并缓存到系统临时目录，
-`soundFile` 可以换成你喜欢的 wav。插件只监听 `approval/request`，以直通方式返回，
-不改变任何审批结果，也不会自动批准任何请求；智能体自己发起的 `ask_user_question`
-不经过这个事件，因此不会响。`onlyWhenBackground` 需要宿主在请求里提供焦点信息；
+`soundFile` 可以换成你喜欢的 wav。
+
+**触发点有两个**，缺一会漏：
+
+- `tools/pre-execute` 返回 `ask`：工具执行前需要用户确认（插件管理、提权类操作都走这里）；
+- `approval/request`：`dsh-user-approval` 服务层的审批瀑布（Agent 作用域内的工具被策略拦下）。
+
+两者用 `minIntervalMs` 去重，同一决策只响一次。插件以直通方式返回，不改变任何审批结果，
+也不会自动批准任何请求。智能体自己发起的 `ask_user_question` 不经过这两个点，因此不会响。
+`onlyWhenBackground` 需要宿主在请求里提供焦点信息；
 当前 dsh 的 `approval/request` 载荷不含该字段，所以默认保持 `false`。
 
 ## 测试插件

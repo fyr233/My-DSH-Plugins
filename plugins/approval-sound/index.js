@@ -257,10 +257,16 @@ export function bindWindowsPlayer(state, ctx, platform = process.platform, execP
       return undefined
     }
     const winmm = koffi.load('winmm.dll')
-    // SND_FILENAME is the default for a path; SND_ASYNC returns immediately;
-    // SND_NODEFAULT keeps a broken file silent instead of beeping.
+    // SND_FILENAME: the string is a file path. No SND_ASYNC on purpose.
+    //
+    // SND_ASYNC returned TRUE in this Host after 0 ms and played nothing: the
+    // asynchronous mode needs a message loop / audio session that an Electron
+    // main process does not have, so the request is accepted and dropped. The
+    // synchronous form blocks until the device has drained the file (measured
+    // ~2.2 s for the system cue, matching its length), which is the only form
+    // verified to be audible from the Host. The cue is short by design.
     const sndPlaySoundW = winmm.func('bool __stdcall sndPlaySoundW(str16 lpszSound, uint flags)')
-    state.ffi = (file) => sndPlaySoundW(file, 1 | 0x00020000)
+    state.ffi = (file) => sndPlaySoundW(file, 0x00020000)
     return state.ffi
   } catch (error) {
     ctx.logger?.warn?.('approval-sound: could not bind winmm: %s', String(error))
@@ -301,9 +307,11 @@ export function playCue(ctx, request, config, state) {
     const play = bindWindowsPlayer(state, ctx)
     if (play === undefined) return false
     try {
-      // sndPlaySoundW returns TRUE once the sound is queued; FALSE means the
-      // device refused it (or the file is unreadable).
-      return play(file) !== false
+      // Synchronous: returns TRUE after the device drained the file, or FALSE
+      // when it refused it. The wait is the length of the short cue.
+      const played = play(file) !== false
+      if (!played) ctx.logger?.warn?.('approval-sound: sndPlaySoundW refused %s', file)
+      return played
     } catch (error) {
       ctx.logger?.warn?.('approval-sound: winmm playback failed: %s', String(error))
       return false
@@ -329,7 +337,21 @@ export function playCue(ctx, request, config, state) {
 }
 
 /**
- * Register the approval listener.
+ * Register the approval listeners.
+ *
+ * Two sources, because dsh asks for a decision through two different paths:
+ *
+ * - `approval/request`: the `dsh-user-approval` waterfall that agent-scoped
+ *   tool calls go through when a policy needs the human (`ui-approval` renders
+ *   its panel from it).
+ * - `tools/pre-execute`: the policy hook in front of every tool call. Its
+ *   decision can be `ask`, i.e. "the panel is about to appear" — this is where
+ *   a tool call that asks for elevation (such as a plugin-management action)
+ *   is caught even though `approval/request` never reaches a plugin for it.
+ *
+ * The state throttle (`minIntervalMs`) collapses the two events of one decision
+ * into a single cue.
+ *
  * @param ctx - plugin context.
  * @param config - resolved row config (see {@link Config}).
  */
@@ -337,13 +359,34 @@ export function apply(ctx, config = DEFAULTS) {
   const settings = { ...DEFAULTS, ...config }
   const state = createCueState()
 
-  const dispose = ctx.on('approval/request', async (request, next) => {
+  // Bind once at load so a broken FFI shows up in the startup log, not only in
+  // the middle of answering a request.
+  if (process.platform === 'win32') bindWindowsPlayer(state, ctx)
+
+  const cue = (source, request) => {
+    // The Windows cue is synchronous and short; ring before delegating so the
+    // sound starts with the panel, not after the user already answered it.
     try {
-      playCue(ctx, request, settings, state)
+      const played = playCue(ctx, request, settings, state)
+      state.lastSource = played ? source : state.lastSource
     } catch (error) {
       ctx.logger?.warn?.('approval-sound: could not play the cue: %s', String(error))
     }
+  }
+
+  const disposeApproval = ctx.on('approval/request', async (request, next) => {
+    cue('approval', request)
     return next()
   })
-  if (typeof dispose === 'function') ctx.effect(() => dispose)
+  if (typeof disposeApproval === 'function') ctx.effect(() => disposeApproval)
+
+  const disposeTools = ctx.on('tools/pre-execute', async (exec, next) => {
+    const decision = await next()
+    // `ask` means the human is about to be prompted; `deny`/`allow` are silent.
+    if (decision?.kind === 'ask' || decision?.action === 'ask' || decision === 'ask') {
+      cue('tool', { toolName: typeof exec?.name === 'string' ? exec.name : '' })
+    }
+    return decision
+  })
+  if (typeof disposeTools === 'function') ctx.effect(() => disposeTools)
 }
