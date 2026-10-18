@@ -1,0 +1,11 @@
+# 统一换行，避免 Windows checkout 把入口与 patch 变成 CRLF
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+
+*.svg text
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary

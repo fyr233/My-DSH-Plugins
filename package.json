@@ -1,8 +1,17 @@
 {
   "name": "dsh-plugins",
   "private": true,
-  "version": "1.0.0",
+  "version": "3.0.0",
   "type": "module",
   "description": "A collection of independently installable DeepSeek Harness (dsh) plugin bundles.",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "validate": "node scripts/validate.mjs",
+    "validate:write": "node scripts/validate.mjs --write",
+    "list": "node scripts/validate.mjs --list"
+  }
 }

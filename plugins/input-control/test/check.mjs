@@ -5,7 +5,7 @@
  * Run: node input-control/test/check.mjs
  */
 import assert from 'node:assert/strict'
-import { parseOutput, InputError } from '../index.js'
+import { apply, Config, parseOutput, InputError } from '../index.js'
 
 // A successful action reports what it did, so the model can verify afterwards.
 const ok = parseOutput(
@@ -55,5 +55,35 @@ assert.throws(
 
 // Garbage is never treated as success.
 assert.throws(() => parseOutput('garbage', '', 0), (error) => error.code === 'WORKER_FAILED')
+
+// --- wiring: six tools, each owned by an effect ------------------------------
+{
+  const tools = []
+  const effects = []
+  const ctx = {
+    effect(fn) {
+      effects.push(fn)
+      return fn()
+    },
+    tools: {
+      register(definition) {
+        tools.push(definition)
+        return () => {}
+      },
+    },
+    get: () => undefined,
+  }
+  apply(ctx, {})
+  assert.deepEqual(
+    tools.map((tool) => tool.name).sort(),
+    ['click', 'drag', 'move_mouse', 'press_keys', 'scroll', 'type_text'],
+  )
+  assert.equal(effects.length, 6, 'every registration is an owned effect')
+  assert.equal(tools.find((tool) => tool.name === 'move_mouse').isConcurrencySafe(), true)
+  assert.equal(tools.find((tool) => tool.name === 'click').isConcurrencySafe(), false)
+  assert.equal(Config['~standard'].version, 1, 'config uses the Standard Schema protocol')
+  assert.equal(Config['~standard'].validate({ timeoutMs: 15000 }).value.timeoutMs, 15000)
+  assert.ok(Config['~standard'].validate({ nope: true }).issues, 'unknown keys are rejected')
+}
 
 console.log('input-control: all checks passed')

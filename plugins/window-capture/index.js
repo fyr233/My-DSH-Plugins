@@ -22,6 +22,41 @@ export const name = 'window-capture'
 
 export const inject = ['tools', 'attachments']
 
+/**
+ * Row config, overridable from the profile's `cordis.patch.yml`. A patch layer
+ * replaces the whole `config` object, so every key stays optional and has a
+ * documented default.
+ *
+ * Declared with Standard Schema's `~standard` protocol rather than a bare JSON
+ * Schema: a JSON Schema object alone makes dsh look up a validator package this
+ * workspace bundle cannot resolve, and the entry fails to activate.
+ */
+export const Config = {
+  '~standard': {
+    version: 1,
+    vendor: 'dsh-plugins-window-capture',
+    validate(value) {
+      const config = { ...DEFAULT_CONFIG }
+      if (value === undefined || value === null) return { value: config }
+      if (typeof value !== 'object' || Array.isArray(value)) {
+        return { issues: [{ message: 'config must be an object', path: [] }] }
+      }
+      for (const [key, entry] of Object.entries(value)) {
+        if (key !== 'timeoutMs') {
+          return { issues: [{ message: `unknown config key: ${key}`, path: [key] }] }
+        }
+        if (!Number.isInteger(entry) || entry < 1000 || entry > 120000) {
+          return { issues: [{ message: 'timeoutMs must be an integer from 1000 to 120000', path: ['timeoutMs'] }] }
+        }
+        config.timeoutMs = entry
+      }
+      return { value: config }
+    },
+  },
+}
+
+const DEFAULT_CONFIG = { timeoutMs: 20_000 }
+
 const here = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(here, 'capture-worker.cjs')
 
@@ -38,9 +73,10 @@ export class CaptureError extends Error {
  * Run the capture worker and parse its result line.
  * @param ctx - plugin context supplying the subprocess service.
  * @param request - the capture request.
+ * @param config - resolved row config; `timeoutMs` bounds one worker run.
  * @returns the worker's success payload.
  */
-export async function runCapture(ctx, request) {
+export async function runCapture(ctx, request, config = DEFAULT_CONFIG) {
   if (process.platform !== 'win32') throw new CaptureError('NOT_WINDOWS', '窗口截图仅在 Windows 上可用。')
   const subprocess = ctx.get('subprocess')
   if (subprocess === undefined) throw new CaptureError('NO_SUBPROCESS', '当前组合没有 subprocess 服务，无法截图。')
@@ -53,7 +89,7 @@ export async function runCapture(ctx, request) {
       stdout: { maxBytes: 256 * 1024 },
       stderr: { maxBytes: 64 * 1024 },
     },
-    graceMs: 20_000,
+    graceMs: config?.timeoutMs ?? DEFAULT_CONFIG.timeoutMs,
   })
   const outcome = await handle.done
   const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
@@ -89,7 +125,8 @@ export function parseOutput(stdout, stderr, exitCode) {
 
 /** Render one window row for lists and hints. */
 export function describeWindow(window) {
-  return `[${window.handle}] ${window.title} (${window.process || 'unknown'}, pid ${window.pid}) ${window.width}x${window.height}`
+  const title = window.title === '' ? '(无标题)' : window.title
+  return `[${window.handle}] ${title} (${window.process || 'unknown'}, pid ${window.pid}) ${window.width}x${window.height}`
 }
 
 /** How a capture was rendered, in words the model can act on. */
@@ -100,8 +137,11 @@ function methodText(method) {
 /**
  * Register the capture tools.
  * @param ctx - plugin context.
+ * @param config - resolved row config (see {@link Config}).
  */
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  const settings = { ...DEFAULT_CONFIG, ...config }
+
   ctx.effect(() => ctx.tools.register({
     name: 'list_windows',
     description: 'List visible desktop windows (handle, title, process, position and size). '
@@ -149,12 +189,13 @@ export function apply(ctx) {
       },
     },
     async execute(args) {
-      const payload = await runCapture(ctx, { action: 'list' })
+      const payload = await runCapture(ctx, { action: 'list' }, settings)
       let windows = Array.isArray(payload.windows) ? payload.windows : []
       if (typeof args.filter === 'string' && args.filter.trim() !== '') {
         const needle = args.filter.trim().toLowerCase()
         windows = windows.filter((window) =>
-          window.title.toLowerCase().includes(needle) || window.process.toLowerCase().includes(needle))
+          String(window.title ?? '').toLowerCase().includes(needle)
+          || String(window.process ?? '').toLowerCase().includes(needle))
       }
       return { count: windows.length, windows }
     },
@@ -249,7 +290,7 @@ export function apply(ctx) {
           ...(mode === 'screen' ? { mode: 'screen' } : { window: handle !== undefined ? String(handle) : title }),
           scope: args.scope === 'client' ? 'client' : 'window',
           output,
-        })
+        }, settings)
         const data = await readFile(output)
         if (data.length === 0) throw new CaptureError('CAPTURE_FAILED', '截图返回了空图片。')
         const attachment = await ctx.attachments.saveImage({
@@ -281,7 +322,11 @@ export function apply(ctx) {
       return [
         {
           type: 'text',
-          text: `已截取窗口「${value.title}」，${value.width}x${value.height}，范围 ${value.scope}（${methodText(value.method)}）。图像如下。`,
+          // The finalizer sees the published value, whose fields may have been
+          // pruned; never render an undefined placeholder into the transcript.
+          text: `已截取窗口「${value.title ?? ''}」`
+            + `${value.width ?? '?'}x${value.height ?? '?'}`
+            + `，范围 ${value.scope ?? 'window'}（${methodText(value.method)}）。图像如下。`,
         },
         { type: 'image', attachment },
       ]

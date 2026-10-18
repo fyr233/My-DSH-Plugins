@@ -1,6 +1,7 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "@local/dsh-plugin-seamless-continue",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Resume an interrupted DeepSeek Harness turn as if it had never stopped: context renders a tool call or a cut-off answer, never a stop.",
@@ -20,8 +21,12 @@
     "locale/*.json",
     "icon.svg"
   ],
+  "scripts": {
+    "test": "node test/check.mjs"
+  },
   "engines": {
-    "dsh": ">=0.2.0 <0.3.0"
+    "dsh": ">=0.2.0 <0.3.0",
+    "node": ">=22"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.5"
@@ -31,6 +36,8 @@
   },
   "dsh": {
     "manifestVersion": 1,
-    "bundle": { "patch": "./cordis.patch.yml" }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }

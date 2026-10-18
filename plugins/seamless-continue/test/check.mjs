@@ -3,7 +3,7 @@
  * logs. Runs the real exported functions from index.js.
  */
 import assert from 'node:assert/strict'
-import { foldResumeState, isResumable, recoveryResults, carrierMessage } from '../index.js'
+import { apply, foldResumeState, isResumable, recoveryResults, carrierMessage, Config } from '../index.js'
 
 const seq = (n) => n // the fold only reads types and payload fields
 
@@ -67,5 +67,89 @@ for (const [kind, expected] of [['aborted', true], ['interrupted', true], ['max-
   assert.equal(isResumable({ kind }), expected, `${kind} resumable?`)
 }
 assert.equal(isResumable(undefined), false)
+
+// --- wiring: the command, the rewrite, and the disarm path -------------------
+/** A minimal Cordis-like context that records what apply() registers. */
+function fakeContext({ lastTurnEnd = { kind: 'aborted' }, status = 'idle' } = {}) {
+  const registered = { commands: [], listeners: [], effects: [] }
+  const appended = []
+  const followups = []
+  const ctx = {
+    effect(fn) {
+      registered.effects.push(fn)
+      return fn()
+    },
+    on(name, listener) {
+      registered.listeners.push({ name, listener })
+      return () => {}
+    },
+    commands: {
+      register(definition) {
+        registered.commands.push(definition)
+        return () => {}
+      },
+    },
+    sessions: {
+      get: () => ({
+        snapshotEvents: () => [{ type: 'turn/end', data: { reason: lastTurnEnd } }],
+        append: (type, data) => appended.push({ type, data }),
+      }),
+    },
+    logger: { warn: () => {} },
+  }
+  const agent = { id: 'agent-1', status, followup: (message) => followups.push(message) }
+  return { ctx, registered, appended, followups, agent }
+}
+
+// The config follows the Standard Schema protocol dsh validates rows with.
+assert.equal(Config['~standard'].version, 1)
+assert.equal(Config['~standard'].validate({ commandDescription: 'go' }).value.commandDescription, 'go')
+assert.ok(Config['~standard'].validate({ nope: true }).issues, 'unknown keys are rejected')
+
+// /continue queues a carrier and arms exactly one resume.
+{
+  const { ctx, registered, followups, agent } = fakeContext()
+  apply(ctx, {})
+  assert.equal(registered.commands.length, 1)
+  assert.equal(registered.commands[0].name, 'continue')
+  const result = registered.commands[0].handler({ agent })
+  assert.equal(result.kind, 'success')
+  assert.equal(followups.length, 1)
+  assert.equal(registered.effects.length, 2, 'command and listener are both owned effects')
+}
+
+// A running agent and a finished turn are both refused before arming.
+{
+  const running = fakeContext({ status: 'running' })
+  apply(running.ctx, {})
+  assert.equal(running.registered.commands[0].handler({ agent: running.agent }).kind, 'error')
+  assert.equal(running.followups.length, 0)
+
+  const finished = fakeContext({ lastTurnEnd: { kind: 'completed' } })
+  apply(finished.ctx, {})
+  assert.equal(finished.registered.commands[0].handler({ agent: finished.agent }).kind, 'error')
+}
+
+// An armed resume whose step no longer carries the carrier disarms itself, so a
+// later user turn is never rewritten and never gets recovery results appended.
+{
+  const { ctx, registered, appended, followups, agent } = fakeContext()
+  apply(ctx, {})
+  registered.commands[0].handler({ agent })
+  const rewrite = registered.listeners.find((entry) => entry.name === 'agent/pre-step').listener
+  const userMessage = { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] }
+  let nextCalls = 0
+  const decision = await rewrite(
+    { agent, messages: [userMessage], turn: 1, step: 1, signal: undefined },
+    async () => {
+      nextCalls += 1
+      return { kind: 'enter', messages: [userMessage] }
+    },
+  )
+  assert.equal(decision.kind, 'enter')
+  assert.equal(nextCalls, 1, 'the step passes through untouched')
+  assert.equal(appended.length, 0, 'no recovery result for a user turn')
+  assert.equal(followups.length, 1)
+}
 
 console.log('seamless-continue: all checks passed')

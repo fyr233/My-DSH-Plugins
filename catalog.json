@@ -1,0 +1,23 @@
+{
+  "$schema": "./scripts/catalog.schema.json",
+  "schemaVersion": 1,
+  "defaults": {
+    "engines": {
+      "dsh": ">=0.2.0 <0.3.0"
+    }
+  },
+  "plugins": [
+    {
+      "dir": "window-capture",
+      "tags": ["windows", "vision", "desktop"]
+    },
+    {
+      "dir": "input-control",
+      "tags": ["windows", "desktop", "automation"]
+    },
+    {
+      "dir": "seamless-continue",
+      "tags": ["conversation", "commands"]
+    }
+  ]
+}

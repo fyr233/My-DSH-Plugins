@@ -32,6 +32,40 @@ export const name = 'seamless-continue'
 export const inject = ['commands', 'sessions']
 
 /**
+ * Row config, overridable from the profile's `cordis.patch.yml`. A patch layer
+ * replaces the whole `config` object, so every key stays optional.
+ *
+ * Declared with Standard Schema's `~standard` protocol rather than a bare JSON
+ * Schema: a JSON Schema object alone makes dsh look up a validator package this
+ * workspace bundle cannot resolve, and the entry fails to activate.
+ */
+export const Config = {
+  '~standard': {
+    version: 1,
+    vendor: 'dsh-plugins-seamless-continue',
+    validate(value) {
+      const config = {}
+      if (value === undefined || value === null) return { value: config }
+      if (typeof value !== 'object' || Array.isArray(value)) {
+        return { issues: [{ message: 'config must be an object', path: [] }] }
+      }
+      for (const [key, entry] of Object.entries(value)) {
+        if (key !== 'commandDescription') {
+          return { issues: [{ message: `unknown config key: ${key}`, path: [key] }] }
+        }
+        if (typeof entry !== 'string' || entry.trim() === '') {
+          return { issues: [{ message: 'commandDescription must be a non-empty string', path: ['commandDescription'] }] }
+        }
+        config.commandDescription = entry
+      }
+      return { value: config }
+    },
+  },
+}
+
+const DEFAULT_COMMAND_DESCRIPTION = 'Resume the interrupted turn from the break, as if it had not stopped'
+
+/**
  * Turn endings the user can resume. `aborted` is a stop or an interrupt,
  * `interrupted` is a turn closed by restart recovery, and `max-tokens` is a
  * reply cut off by the output limit.
@@ -151,15 +185,17 @@ function isCarrier(message) {
 /**
  * Register `/continue` and the step rewrite that removes it.
  * @param ctx - plugin context.
+ * @param config - resolved row config (see {@link Config}).
  */
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
   /** Session ids with an open resume request; consumed by the admitting step. */
   const resuming = new Set()
+  const commandDescription = config?.commandDescription ?? DEFAULT_COMMAND_DESCRIPTION
 
   ctx.effect(() => {
     const dispose = ctx.commands.register({
       name: 'continue',
-      description: 'Resume the interrupted turn from the break, as if it had not stopped',
+      description: commandDescription,
       handler: ({ agent }) => {
         const session = ctx.sessions.get(agent.id)
         if (session === undefined) return { kind: 'error', text: '会话未连接。' }
@@ -177,29 +213,46 @@ export function apply(ctx) {
       dispose()
       resuming.clear()
     }
-  })
+  }, 'seamless-continue: /continue')
 
-  ctx.on('agent/pre-step', async (payload, next) => {
+  const disposePreStep = ctx.on('agent/pre-step', async (payload, next) => {
     // Successive steps of the same turn claim no new message, so the carrier is
     // only present on the first admitting step. Detect it from the messages
     // themselves: an entry left behind by a stopped turn must never arm a later,
     // user-initiated step.
     const claimsCarrier = (messages) => messages.some((message) => isCarrier(message))
 
-    if (!resuming.has(payload.agent.id) || !claimsCarrier(payload.messages)) return next()
+    const armed = resuming.has(payload.agent.id)
+    // An armed session whose step no longer carries the carrier lost its resume
+    // (the carrier was discarded or never admitted), so disarm it here instead
+    // of arming whatever the user sends next.
+    if (!armed || !claimsCarrier(payload.messages)) {
+      if (armed) resuming.delete(payload.agent.id)
+      return next()
+    }
     const decision = await next()
-    if (decision.kind !== 'enter') return decision
+    if (decision.kind !== 'enter') {
+      resuming.delete(payload.agent.id)
+      return decision
+    }
 
     const claim = new Set(payload.messages)
     const remaining = decision.messages.filter((message) => !claim.has(message) || !isCarrier(message))
-    if (remaining.length === decision.messages.length) return next() // not ours after all
-    if (remaining.length > 0) return { ...decision, messages: remaining }
+    if (remaining.length === decision.messages.length) {
+      resuming.delete(payload.agent.id)
+      return next() // not ours after all
+    }
+    if (remaining.length > 0) {
+      resuming.delete(payload.agent.id)
+      return { ...decision, messages: remaining }
+    }
 
     // Nothing the user wrote remains. Closing the run with an empty list would
-    // end the turn without calling the model, so the carrier is the one message
-    // delivered — by the user source it can never be. The step therefore carries
-    // a single item the user's own interruption left there (a queued message, or
-    // a tool result): the model receives no instruction and continues from it.
+    // end the turn without calling the model, and an `enter` decision that names
+    // no message is rejected later for exactly that reason. So the carrier is
+    // kept as the sole admitted message: by its source it can never be one the
+    // user typed, it carries no instruction, and the model continues from the
+    // tool result the user's own interruption left there.
     const session = ctx.sessions.get(payload.agent.id)
     if (session !== undefined) {
       const { pending } = foldResumeState(session.snapshotEvents())
@@ -214,4 +267,7 @@ export function apply(ctx) {
     resuming.delete(payload.agent.id)
     return decision
   })
+  if (typeof disposePreStep === 'function') {
+    ctx.effect(() => disposePreStep)
+  }
 }

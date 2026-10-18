@@ -17,6 +17,40 @@ export const name = 'input-control'
 
 export const inject = ['tools']
 
+/**
+ * Row config, overridable from the profile's `cordis.patch.yml`. A patch layer
+ * replaces the whole `config` object, so every key stays optional.
+ *
+ * Declared with Standard Schema's `~standard` protocol rather than a bare JSON
+ * Schema: a JSON Schema object alone makes dsh look up a validator package this
+ * workspace bundle cannot resolve, and the entry fails to activate.
+ */
+export const Config = {
+  '~standard': {
+    version: 1,
+    vendor: 'dsh-plugins-input-control',
+    validate(value) {
+      const config = { ...DEFAULT_CONFIG }
+      if (value === undefined || value === null) return { value: config }
+      if (typeof value !== 'object' || Array.isArray(value)) {
+        return { issues: [{ message: 'config must be an object', path: [] }] }
+      }
+      for (const [key, entry] of Object.entries(value)) {
+        if (key !== 'timeoutMs') {
+          return { issues: [{ message: `unknown config key: ${key}`, path: [key] }] }
+        }
+        if (!Number.isInteger(entry) || entry < 1000 || entry > 120000) {
+          return { issues: [{ message: 'timeoutMs must be an integer from 1000 to 120000', path: ['timeoutMs'] }] }
+        }
+        config.timeoutMs = entry
+      }
+      return { value: config }
+    },
+  },
+}
+
+const DEFAULT_CONFIG = { timeoutMs: 10_000 }
+
 const here = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(here, 'input-worker.cjs')
 
@@ -33,9 +67,10 @@ export class InputError extends Error {
  * Run one action in the Medium-integrity worker.
  * @param ctx - plugin context supplying the subprocess service.
  * @param request - the action request.
+ * @param config - resolved row config; `timeoutMs` bounds one worker run.
  * @returns the worker's result payload.
  */
-export async function runInput(ctx, request) {
+export async function runInput(ctx, request, config = DEFAULT_CONFIG) {
   if (process.platform !== 'win32') throw new InputError('NOT_WINDOWS', '键鼠控制仅在 Windows 上可用。')
   const subprocess = ctx.get('subprocess')
   if (subprocess === undefined) throw new InputError('NO_SUBPROCESS', '当前组合没有 subprocess 服务，无法注入输入。')
@@ -48,7 +83,7 @@ export async function runInput(ctx, request) {
       stdout: { maxBytes: 256 * 1024 },
       stderr: { maxBytes: 64 * 1024 },
     },
-    graceMs: 10_000,
+    graceMs: config?.timeoutMs ?? DEFAULT_CONFIG.timeoutMs,
   })
   const outcome = await handle.done
   const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
@@ -117,8 +152,11 @@ function describe(payload) {
 /**
  * Register the input tools.
  * @param ctx - plugin context.
+ * @param config - resolved row config (see {@link Config}).
  */
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  const settings = { ...DEFAULT_CONFIG, ...config }
+
   const resultSchema = {
     type: 'object',
     additionalProperties: false,
@@ -148,7 +186,7 @@ export function apply(ctx) {
         render: (_args, value) => [{ type: 'text', text: describe(value) }],
       },
       async execute(args) {
-        return runInput(ctx, build(args))
+        return runInput(ctx, build(args), settings)
       },
       isConcurrencySafe: () => concurrencySafe,
       presentCall(args) {

@@ -5,7 +5,7 @@
  * Run: node window-capture/test/check.mjs
  */
 import assert from 'node:assert/strict'
-import { parseOutput, describeWindow, CaptureError } from '../index.js'
+import { apply, Config, parseOutput, describeWindow, CaptureError } from '../index.js'
 
 // --- result parsing (the worker → plugin boundary) --------------------------
 const ok = parseOutput(
@@ -63,5 +63,43 @@ assert.match(
   /unknown/u,
   'a missing process name reads as unknown',
 )
+assert.match(
+  describeWindow({ handle: 0, title: '', process: 'Code', pid: 1, width: 1, height: 1 }),
+  /无标题/u,
+  'an untitled window still renders a readable row',
+)
+
+// --- wiring: two tools, each owned by an effect ------------------------------
+/** A minimal Cordis-like context that records tool definitions. */
+function fakeContext() {
+  const tools = []
+  const effects = []
+  const ctx = {
+    effect(fn) {
+      effects.push(fn)
+      return fn()
+    },
+    tools: {
+      register(definition) {
+        tools.push(definition)
+        return () => {}
+      },
+    },
+    get: () => undefined,
+  }
+  return { ctx, tools, effects }
+}
+
+assert.equal(Config['~standard'].version, 1, 'config uses the Standard Schema protocol')
+assert.equal(Config['~standard'].validate(undefined).value.timeoutMs, 20000, 'defaults apply')
+assert.equal(Config['~standard'].validate({ timeoutMs: 30000 }).value.timeoutMs, 30000)
+assert.ok(Config['~standard'].validate({ timeout: 5 }).issues, 'unknown keys are rejected')
+{
+  const { ctx, tools, effects } = fakeContext()
+  apply(ctx, {})
+  assert.deepEqual(tools.map((tool) => tool.name), ['list_windows', 'capture_window'])
+  assert.equal(effects.length, 2, 'both registrations are owned effects')
+  assert.equal(tools[1].isConcurrencySafe(), false, 'captures never run concurrently')
+}
 
 console.log('window-capture: all checks passed')

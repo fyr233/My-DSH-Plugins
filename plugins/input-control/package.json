@@ -1,6 +1,7 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "@local/dsh-plugin-input-control",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Drive the desktop: click, type, press shortcuts, scroll and drag in a window so the Agent can act on what it screenshotted.",
@@ -21,8 +22,12 @@
     "locale/*.json",
     "icon.svg"
   ],
+  "scripts": {
+    "test": "node test/check.mjs"
+  },
   "engines": {
-    "dsh": ">=0.2.0 <0.3.0"
+    "dsh": ">=0.2.0 <0.3.0",
+    "node": ">=22"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.5"

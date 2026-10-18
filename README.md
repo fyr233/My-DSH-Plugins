@@ -1,171 +1,189 @@
 # DSH 插件集
 
-一组可独立安装的 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件组合包**。
+一组可独立安装的 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件组合包**（bundle）。
+每个插件都是 `plugins/` 下一个自包含的 npm 包，在 `package.json` 中声明 `dsh.bundle.patch`，
+按 [打包与安装插件](https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish) 的约定编写。
 
-`plugins/` 下每个子目录都是一个自包含的 npm 包，在 `package.json` 中声明 `dsh.bundle.patch`。
-用 `dsh plugin add` 安装后，它会被链接进某个 [profile](https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish)，
-并被追加到该 profile 的 `dsh.profile.bundles` 列表——正是这一步让 dsh 在启动时应用插件的 patch 层。
+完整安装命令：[安装](#安装)；只想了解机器上现在是否已启用：[已装了吗](#已装了吗)。
 
+<!-- BEGIN PLUGINS -->
+<!-- 本表格由 scripts/validate.mjs --write 生成，请勿手改。 -->
 | 插件 | 包名 | 版本 | 提供的工具 / 命令 | 平台 |
 | --- | --- | --- | --- | --- |
-| [`window-capture`](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.0.0 | `list_windows`、`capture_window` | Windows |
-| [`input-control`](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.0.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
-| [`seamless-continue`](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.1.0 | `/continue` 命令 | 任意 |
+| [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.1.0 | `list_windows`、`capture_window` | Windows |
+| [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
+| [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
+<!-- END PLUGINS -->
 
 `window-capture` 与 `input-control` 设计为配合使用：先截图，再按截图中看到的坐标操作，
-然后再次截图确认结果。
+然后再截图确认结果。
 
 ## 环境要求
 
 - **DeepSeek Harness** `0.2.x`。每个包都声明 `engines.dsh` 为 `>=0.2.0 <0.3.0`，
   版本范围不匹配时 dsh 会拒绝加载该组合包。
-- **Node.js**（`window-capture` 与 `input-control` 需要用运行 dsh 的 Node 可执行文件启动工作进程）。
+- **Node.js ≥ 22**（校验器与自检用它；`window-capture` / `input-control` 还需要用运行 dsh 的
+  Node 可执行文件启动工作进程，这是 dsh 运行环境自带的）。
 - **Windows**：`window-capture` 与 `input-control` 仅支持 Windows，在其它平台会返回明确的
   `NOT_WINDOWS` 错误，而不是静默出错。
-- 一个可用的 `dsh` 命令。桌面应用自带一个：
-  `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`，
-  如果它不在 `PATH` 中，本仓库的脚本会自动找到它。
+- `window-capture` / `input-control` 依赖 profile 中已启用的 `subprocess` 服务。桌面应用默认
+  包含它；自定义组合里缺了它时，工具会返回 `NO_SUBPROCESS`，不会让插件加载失败。
 
 ## 安装
 
-把本仓库克隆到任意位置，然后在仓库根目录运行：
+把本仓库克隆到任意位置（**装好后不要再移动**，若必须移动，见[仓库搬家之后](#仓库搬家之后)），
+然后按下面的规则选择安装方式。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
+### 给 Agent 的规则（重要）
 
-这会把**全部**插件装入 `$env:DSH_PROFILE` 指定的 profile（默认 `desktop`）。常用参数：
+> **安装、卸载、检查插件一律使用 `plugin_manager` 工具。**
+> 本仓库**不提供**安装脚本：`install_bundle` 之外没有第二个安装入口，也不要假手
+> `dsh plugin` 或要求用户先退出应用再手工操作。
 
-```powershell
-# 装入其它 profile
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
+原因：`install_bundle` 就是官方安装入口，它执行 pnpm 安装、登记 `dsh.profile.bundles`，
+并**当场把插件挂进运行中的配置**、把激活结果（`application`）和错误诊断原样返回。
+脱离它的安装方式只会写 profile 文件，看不到插件是否真的激活，还会被桌面应用独占挡住。
 
-# 只装其中两个
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Plugin window-capture, input-control
+对每个插件，`target` 直接给 `plugins/` 下的绝对路径，例如：
 
-# 只预览，不执行
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
-```
+| 插件 | `target` |
+| --- | --- |
+| 窗口截图 | `<仓库绝对路径>\plugins\window-capture` |
+| 键鼠控制 | `<仓库绝对路径>\plugins\input-control` |
+| 断点续写 | `<仓库绝对路径>\plugins\seamless-continue` |
 
-### 为什么必须加 `-ExecutionPolicy Bypass`
+要装全部，就对 `node scripts/validate.mjs --list` 列出的每个目录各调用一次（顺序以
+`catalog.json` 为准）。Agent 需要遵守的交互细节：
 
-本机执行策略是 `RemoteSigned`，从网络或克隆得到的 `.ps1` 没有数字签名，直接 `& .\install.ps1`
-会报“未对文件进行数字签名”。上面这条命令只对**本次进程**放宽策略，不修改系统设置，
-是最省事的做法（`-ExecutionPolicy Bypass` 在 `powershell.exe` 自身的参数列表中排在 `-File` 之前）。
+1. **先 `list_bundles`**，看清包的 `source` 与 `availability`。对已经登记、但 `source`
+   指向旧路径的包（`availability: missing`、`error.diagnostic` 含 `cannot resolve`），
+   直接调用 `install_bundle` 会得到 `{"error":{"code":"already-installed"}}`；此时按它返回的
+   `nextStep` 先 `remove_bundle`（`target` 填**包名**），再 `install_bundle`（`target` 填目录）。
+2. **一定要读返回值**：只有 `application: applied` 才算装好。`application: failed` 时
+   `error.diagnostic` 会点名失败的行与异常（例如插件 `Config` 用错协议导致的
+   `TypeError: ... reading 'validate'`），先修代码再重装，不要重试同一动作。
+   `restart-required` 表示需要重启 dsh 才生效，要如实告诉用户。
+3. **替换已安装的同一包时**：同一个包换版本或换了代码，必须先 `remove_bundle` 再
+   `install_bundle`，否则已加载的旧模块生成不会被替换。
+4. **不要替用户操作 profile 文件**（`package.json`、`cordis.patch.yml`）：这些都由
+   `plugin_manager` 负责。
+5. 装完用 `cordis_inspect_query` 核对：`Tool.listTools` 应出现该插件的工具；
+   插件的配置行可用 `Config.listConfigs`（`name` 填包名）查看。
 
-另一种方式是把文件标记为本地来源后直接运行：
+### 桌面应用与命令行
 
-```powershell
-Unblock-File .\install.ps1
-.\install.ps1
-```
+`desktop` profile 归桌面应用所有：命令行修改它会报
+`profile "desktop" is managed exclusively by the Electron application`。
 
-### 先退出桌面应用
-
-`desktop` profile 归桌面应用所有，dsh 会锁住它的 `package.json`。请**完全退出 DeepSeek Harness**
-后再安装，装完再启动。装入 CLI profile（`web`、`headless` 等）没有这个限制。
-
-安装动作本身，就是对每个插件执行一次：
-
-```powershell
-dsh plugin --profile <profile> add <插件目录的绝对路径>
-```
+`plugin_manager` 与应用内「设置 → 插件」走的是应用自己的管理通道，应用运行时可以直接安装，
+并即时生效。这也是本仓库只保留这一条安装路径的原因。
 
 本仓库没有构建步骤：插件直接以 ESM `index.js` 作为入口，克隆下来即可运行。
 
-### 验证是否已加载
+### 已装了吗
 
-```powershell
-dsh --profile desktop --dump-config | Select-String 'window-capture|input-control|seamless-continue'
-```
+Agent 用 `plugin_manager`（`action: list_bundles`）查看：每个包有 `source`（链接指向的目录）、
+`availability`（`installation` / `missing`）和 `error.diagnostic`；装好后再用
+`cordis_inspect_query` 的 `Tool.listTools` 确认工具真的出现。
 
-每个已安装的组合包都会贡献一个带 `# == <包名>` 注释的层。若某个层缺失，说明该包没被加入
-`dsh.profile.bundles`，重新运行安装脚本即可。
+每个已安装的组合包都会贡献一个带 `# == <包名>` 注释的层。注意两种「看起来装了、其实没生效」的情况：
+
+- **层缺失**：包不在 `dsh.profile.bundles` 里——重新安装。
+- **层还在、插件没跑**：`dsh.profile.bundles` 里有包名，但 `package.json` 的 `dependencies`
+  指向了一个**已经不存在的目录**（仓库被移动过）。`list_bundles` 会显示
+  `availability: missing`，启动日志里是 `skipping profile bundle "<包名>": cannot resolve ...`。
+  修复见下一节。
+
+## 仓库搬家之后
+
+按路径安装建立的是**链接**，指向安装时的绝对路径。移动或重命名仓库后，链接失效，
+而 dsh 只在启动日志里提示 `skipping profile bundle`，界面上看不出差别。
+
+修复：对每个插件 `remove_bundle`（包名）再 `install_bundle`（新目录），
+理由与步骤见[给 Agent 的规则](#给-agent-的规则重要)。操作是幂等的，其它插件不受影响。
 
 ## 卸载
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
-```
+用 `plugin_manager` 的 `remove_bundle`（`target` 填**包名**），也可以在「设置 → 插件」里移除。
+它同时删除依赖项与对应的 bundle 层，不留残余。
 
-`dsh plugin remove` 会同时删除依赖项与对应的 bundle 层，不留残余。
-可加 `-Plugin <名称>` 只卸载单个，或 `-DryRun` 预览。
+## 新增插件
 
-## 移动或重命名仓库后
+1. 在 `plugins/<目录名>/` 下按发布文档写一个组合包（结构见 [CONTRIBUTING.md](./CONTRIBUTING.md)）。
+2. 在 `catalog.json` 的 `plugins` 数组里加 `{ "dir": "<目录名>" }`——它是安装顺序、校验器
+   与文档表格的唯一清单。
+3. 运行 `node scripts/validate.mjs --write`：校验并重新生成 README 里的表格。
+4. 运行 `node scripts/test.mjs` 跑全部自检。
+5. 用 `plugin_manager` 的 `install_bundle` 安装验证，确认返回 `application: applied`。
 
-安装建立的是一条**链接**，指向当前目录。所以移动文件夹会让链接失效：
-dsh 仍指向旧路径，插件导入失败且不会报出明显错误。
+CI（`.github/workflows/validate.yml`）在 Linux 与 Windows 上执行同一条 `node scripts/test.mjs`。
 
-移动之后，**在新位置重新运行一次 `install.ps1`** 即可。它会在新的绝对路径上重新添加每个组合包，
-而已经在 `dsh.profile.bundles` 中的包不会被重复添加。
+## 校验器检查什么
 
-## 什么样的目录才是一个 DSH 组合包
+`node scripts/validate.mjs` 零依赖，逐项对应发布文档与插件显示资源的要求：
 
-按[发布文档](https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish)的要求，manifest 约定如下：
+| 检查 | 依据 |
+| --- | --- |
+| `dsh.bundle.patch` 存在、是 `./` 相对路径、并已通过 `exports` 暴露 | 组合包 manifest |
+| patch 行按**包名**引用本包，不出现路径 | Node 模块解析才能找到已安装副本 |
+| `engines.dsh` 声明 SemVer 范围 | 不会装进不兼容的 dsh |
+| `peerDependencies` 的包同时出现在 `devDependencies` | 与宿主共享实例 + 本地检查 |
+| 入口导出 `apply(ctx, config)`（或默认导出服务类），且不混用 | Host 插件导出形式 |
+| 入口只用相对路径与 Node 内置模块，或已声明的包；不得导入 dsh 自带包 | workspace 插件无法解析宿主包 |
+| `locale/en.json` 的 `meta.displayName` / `meta.description`，以及图标格式与 256 KiB 上限 | 插件管理器显示元数据 |
+| `files[]` 覆盖入口、patch、locale、图标 | `pnpm pack` / 发布不丢文件 |
+| 无 UTF-8 BOM；README 表格最新 | 集成与文档 |
 
-```jsonc
-{
-  "name": "@local/dsh-plugin-example",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "main": "index.js",                         // ESM 入口，导出 `name` 与 `apply(ctx)`
-  "exports": { ".": "./index.js" },
-  "files": ["index.js", "cordis.patch.yml"],  // `pnpm pack` 会打包的文件
-  "engines": { "dsh": ">=0.2.0 <0.3.0" },     // 声明支持的 dsh 版本范围
-  "peerDependencies": { "@deepseek-ai/cordis": "~4.0.5" },  // 与宿主共享同一实例
-  "devDependencies": { "@deepseek-ai/cordis": "~4.0.5" },   // 供本地类型检查
-  "dsh": {
-    "manifestVersion": 1,
-    "bundle": { "patch": "./cordis.patch.yml" }             // 组合包声明
-  }
-}
-```
+## 配置插件
 
-`cordis.patch.yml` 是一个 YAML 数组，用 insert 条目插入本插件的 Loader 行：
+每个插件在 **profile 自己的** `cordis.patch.yml`（例如 `~/.dsh/profiles/desktop/cordis.patch.yml`）
+里都能改配置，不需要改本仓库。补丁层会**整体替换** `config`，所以写全需要的键：
 
 ```yaml
-- insert:
-    - id: example
-      name: '@local/dsh-plugin-example'
-      config: {}
+- id: window-capture
+  name: '@local/dsh-plugin-window-capture'
+  config:
+    timeoutMs: 30000
+
+- id: input-control
+  name: '@local/dsh-plugin-input-control'
+  config:
+    timeoutMs: 15000
+
+- id: seamless-continue
+  name: '@local/dsh-plugin-seamless-continue'
+  config: {}
 ```
-
-行中的 `name` 必须是**包名**，不能写相对路径，这样 Node 的模块解析才能找到已安装的副本。
-
-### 字段说明
-
-- **`engines.dsh`** —— SemVer 范围。声明了它时，只由它决定兼容性（`peerDependencies` 的范围被忽略）；
-  没声明时 dsh 改为检查 `peerDependencies` 里的 `@deepseek-ai/dsh*`。
-  本插件集是 `private` 且从不发布，peer 回退路径永远不会生效，所以显式写 `engines.dsh`
-  才是防止它被装入不兼容未来版本的唯一手段。
-- **`private: true`** —— 这些是按路径安装的本地检出，不是注册表包。若将来决定发布，应去掉此字段。
-- **没有 `dsh.client`** —— 这些插件都不带浏览器端 bundle，因此都不声明它。
-  `dsh.client` 声明要求存在真实的 `./client` 导出，不声明才是正确的。
 
 ## 测试插件
 
-每个插件都有无依赖的检查脚本，覆盖纯逻辑与协议解析：
+每个插件都有无依赖的自检脚本，覆盖纯逻辑、协议解析与注册接线：
 
 ```powershell
-node .\plugins\window-capture\test\check.mjs
-node .\plugins\input-control\test\check.mjs
-node .\plugins\seamless-continue\test\check.mjs
+node scripts/test.mjs                      # 全部插件 + 仓库校验
+node .\plugins\window-capture\test\check.mjs  # 单个插件
 ```
 
 ## 目录结构
 
 ```
 .
-├── install.ps1              # 把全部组合包装入 profile（或重新链接）
-├── uninstall.ps1            # 从 profile 中移除全部组合包
-├── package.json             # 仅为本集合的元数据（不是 profile，也不会被安装）
+├── catalog.json             # 插件清单：安装顺序、成员、默认 engines
+├── scripts/
+│   ├── validate.mjs         # 零依赖校验器（--write 重新生成文档表格，--list 输出目录名）
+│   ├── test.mjs             # 自检 + 校验入口（CI 用同一条命令）
+│   └── catalog.schema.json  # catalog.json 的 JSON Schema
+├── .github/workflows/validate.yml
+├── AGENTS.md                # 给 Agent 的规则：只用 plugin_manager 安装
+├── CONTRIBUTING.md          # 新增插件的约定
+├── package.json             # 仅为本仓库的元数据（不是 profile，不会被安装）
 ├── README.md
 └── plugins/
+    ├── README.md            # 插件索引（表格由校验器生成）
     ├── window-capture/      # -> @local/dsh-plugin-window-capture
     │   ├── package.json     #    dsh.bundle.patch
     │   ├── cordis.patch.yml #    本组合包插入的 Loader 行
-    │   ├── index.js         #    插件入口：工具
+    │   ├── index.js         #    插件入口：工具 + Config
     │   ├── capture-worker.cjs #  中完整性的截图工作进程
     │   ├── icon.svg
     │   ├── locale/{en,zh}.json
@@ -173,8 +191,6 @@ node .\plugins\seamless-continue\test\check.mjs
     ├── input-control/       # -> @local/dsh-plugin-input-control
     └── seamless-continue/   # -> @local/dsh-plugin-seamless-continue
 ```
-
-`plugins/` 只放可安装的插件，脚本与文档留在仓库根目录，方便以后继续往里加插件。
 
 ## 许可证
 
