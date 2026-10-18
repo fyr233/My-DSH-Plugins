@@ -24,7 +24,10 @@
    再 `install_bundle`（目录）。
 3. 只认 `application: applied`。`failed` 时读 `error.diagnostic`，修代码或清理后重装，
    不要原样重试；`restart-required` 要告诉用户需要重启。
-4. 换了代码或版本时，一律 `remove_bundle` → `install_bundle`，否则运行中的旧模块不会被替换。
+4. 换了代码或版本时，一律 `remove_bundle` → `install_bundle`，否则运行中的旧模块不会被替换；
+   仍不生效就请用户重启 dsh。
 5. 用 `Tool.listTools` 确认插件的工具确实出现了，再回复用户。
+6. 改动行为、监听点或原生调用前，先读 [docs/experiences](./docs/experiences/README.md)：
+   那里记录了 `Config` 协议、locale 键名、事件作用域、同步播放、HIPS 拦截等已踩过的坑。
 
 插件目录与顺序以 `catalog.json` 为准，`node scripts/validate.mjs --list` 会按顺序列出目录名。

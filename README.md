@@ -211,6 +211,13 @@ node scripts/test.mjs                      # 全部插件 + 仓库校验
 node .\plugins\window-capture\test\check.mjs  # 单个插件
 ```
 
+## 开发经验文档
+
+[docs/experiences](./docs/experiences/README.md) 记录了从实际开发与排障中得出的 dsh
+架构、插件机制与开发约定（每条都附带证据）：分层模型、事件与作用域、`Config` 与显示元数据、
+安装与热重载、Windows 原生能力、以及按症状组织的排障手册。**动手写新插件前先读一遍**，
+能避开本项目踩过的全部坑。
+
 ## 目录结构
 
 ```
@@ -223,6 +230,7 @@ node .\plugins\window-capture\test\check.mjs  # 单个插件
 ├── .github/workflows/validate.yml
 ├── AGENTS.md                # 给 Agent 的规则：只用 plugin_manager 安装
 ├── CONTRIBUTING.md          # 新增插件的约定
+├── docs/experiences/        # dsh 架构与插件开发经验（先读这里）
 ├── package.json             # 仅为本仓库的元数据（不是 profile，不会被安装）
 ├── README.md
 └── plugins/

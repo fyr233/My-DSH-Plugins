@@ -4,6 +4,9 @@
 <https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish>；
 下面的清单是它在**本仓库**里的落地方式，校验器（`scripts/validate.mjs`）会逐条检查。
 
+**动手前先读 [docs/experiences](./docs/experiences/README.md)**：那里记录了 `Config` 协议、
+locale 键名、事件作用域、热重载、Windows 原生能力等已经踩过的坑。
+
 ## 目录结构
 
 ```

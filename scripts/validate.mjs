@@ -468,6 +468,42 @@ async function toolsOf(dir, manifest) {
   return rendered.length === 0 ? '—' : rendered.join('、')
 }
 
+/**
+ * Documentation hygiene: every relative Markdown link under docs/ must resolve,
+ * and the experiences index must list every chapter beside it. Broken links and
+ * unlisted chapters are silent in a browser, so they are checked here.
+ */
+async function checkDocs() {
+  const docsDir = join(ROOT, 'docs')
+  if (!existsSync(docsDir)) return
+  for (const dir of await readdir(docsDir, { withFileTypes: true })) {
+    if (!dir.isDirectory()) continue
+    const chapterDir = join(docsDir, dir.name)
+    const files = (await readdir(chapterDir)).filter((name) => name.endsWith('.md')).sort()
+    const indexPath = join(chapterDir, 'README.md')
+    if (!existsSync(indexPath)) {
+      error(`docs/${dir.name}`, '缺少 README.md 索引')
+      continue
+    }
+    const index = await readFile(indexPath, 'utf8')
+    for (const name of files) {
+      if (name === 'README.md') continue
+      if (!index.includes(`./${name}`)) {
+        error(`docs/${dir.name}/README.md`, `没有链接到章节 ${name}`)
+      }
+    }
+    for (const name of files) {
+      const text = await readFile(join(chapterDir, name), 'utf8')
+      for (const match of text.matchAll(/\]\((\.{1,2}\/[^)#\s]+)/gu)) {
+        const target = resolve(chapterDir, match[1])
+        if (!existsSync(target)) {
+          error(`docs/${dir.name}/${name}`, `相对链接不存在：${match[1]}`)
+        }
+      }
+    }
+  }
+}
+
 async function main() {
   if (!existsSync(CATALOG)) {
     console.error('catalog.json 不存在')
@@ -480,6 +516,7 @@ async function main() {
     return 0
   }
   for (const bundle of bundles) await checkPlugin(bundle)
+  await checkDocs()
 
   // --- generated documentation ---------------------------------------------
   const rows = await renderRows(bundles)
