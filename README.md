@@ -13,7 +13,7 @@
 | [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.1.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
-| [权限申请提示音](./plugins/approval-sound) | `@local/dsh-plugin-approval-sound` | 2.0.0 | — | Windows |
+| [对话提示音](./plugins/approval-sound) | `@local/dsh-plugin-approval-sound` | 3.0.0 | — | Windows |
 <!-- END PLUGINS -->
 
 `window-capture` 与 `input-control` 设计为配合使用：先截图，再按截图中看到的坐标操作，
@@ -161,18 +161,34 @@ CI（`.github/workflows/validate.yml`）在 Linux 与 Windows 上执行同一条
   config: {}
 ```
 
-### 权限申请提示音（approval-sound）
+### 对话提示音（approval-sound）
 
-dsh 弹出权限申请时播放提示音，后台也能注意到。所有键都可选：
+三个时刻各响一种音，后台也能注意到：
+
+| kind | 时刻 | 触发事件 | 默认音型 |
+| --- | --- | --- | --- |
+| `approval` | 需要你决定（权限面板、工具提权） | `approval/request` + `tools/pre-execute` 返回 `ask` | 高→更高两声（叮咚） |
+| `question` | Agent 提问、等你回答 | `user-questions/request` | 连续三声上行 |
+| `done` | 一轮对话结束 | `agent/turn-stopping` | 两声下行 |
+
+所有键都可选：
 
 ```yaml
 - id: approval-sound
   name: '@local/dsh-plugin-approval-sound'
   config:
-    soundFile: ''             # 非空时改播这个 wav，例如 C:\Windows\Media\Alarm01.wav
-    minIntervalMs: 3000       # 同一时间窗内最多响一次，避免连续请求刷屏
+    cue:                      # 单独关闭某一类
+      approval: true
+      question: true
+      done: true
+    sounds:                   # 某一类换成自己的 wav，留空用内置音
+      approval: ''
+      question: ''
+      done: C:\Windows\Media\Alarm01.wav
+    minIntervalMs: 800        # 同一决策的两个事件只响一次
+    quietMs: 0                # 提问后这段时间内不响 done，避免连着响
     onlyWhenBackground: false # true 时只在 dsh 不在前台才响（需要宿主提供焦点信息）
-    mutedTools: ['ask_user_question']  # 不为这些工具的名字发声
+    mutedTools: []            # 这些工具触发的 approval 不响
     enabled: true
 ```
 
@@ -189,18 +205,13 @@ N-API 构建，Electron 与 Node 通用）在**进程内同步**调用 `winmm.dl
 不启动任何子进程、不用 PowerShell、不需要编译器，也不需要联网；找不到 koffi 时只记一条警告。
 Linux 用 `paplay`（或 `aplay`），macOS 用 `afplay`。
 
-插件不带音频文件：内置的“叮咚”提示音在首次使用时于内存中生成并缓存到系统临时目录，
-`soundFile` 可以换成你喜欢的 wav。
+插件不带音频文件：三种提示音都在内存中合成（16-bit mono 22.05 kHz，带淡入淡出），
+首次使用时缓存到系统临时目录的 `approval.wav` / `question.wav` / `done.wav`。
 
-**触发点有两个**，缺一会漏：
-
-- `tools/pre-execute` 返回 `ask`：工具执行前需要用户确认（插件管理、提权类操作都走这里）；
-- `approval/request`：`dsh-user-approval` 服务层的审批瀑布（Agent 作用域内的工具被策略拦下）。
-
-两者用 `minIntervalMs` 去重，同一决策只响一次。插件以直通方式返回，不改变任何审批结果，
-也不会自动批准任何请求。智能体自己发起的 `ask_user_question` 不经过这两个点，因此不会响。
-`onlyWhenBackground` 需要宿主在请求里提供焦点信息；
-当前 dsh 的 `approval/request` 载荷不含该字段，所以默认保持 `false`。
+`approval` 必须挂两个点，缺一会漏：插件管理、提权类操作只出现在 `tools/pre-execute` 的 `ask`
+决策里，不会到达插件的 `approval/request`。所有监听器都是直通（`return next()`），
+不改变任何审批结果，也不会自动批准任何请求；提示音失败只记警告，不会卡住对话。
+`onlyWhenBackground` 需要宿主在请求里提供焦点信息；当前载荷不含该字段，所以默认保持 `false`。
 
 ## 测试插件
 

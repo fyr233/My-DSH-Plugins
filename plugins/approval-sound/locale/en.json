@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Approval Alert Sound",
-    "description": "Ring the terminal bell (\\a) when dsh asks for approval (permission request), so a prompt waiting in the background is noticed; no PowerShell, works on Windows, Linux and macOS, with repeats and throttle."
+    "title": "Conversation Alert Sounds",
+    "description": "Three distinct cues: when a turn finishes (turn-stopping), when the agent asks a question (ask_user_question), and when dsh asks for approval (approval). No PowerShell, works on Windows, Linux and macOS."
   }
 }

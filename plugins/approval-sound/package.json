@@ -1,10 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@local/dsh-plugin-approval-sound",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
-  "description": "Play a sound when dsh asks for approval, so a request waiting in the background is noticed without watching the window.",
+  "description": "Play distinct cues when dsh asks for approval, when the agent asks a question, and when a turn finishes, so background work is noticed.",
   "license": "MIT",
   "main": "index.js",
   "icon": "./icon.svg",

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "权限申请提示音",
-    "description": "dsh 弹出权限申请（approval）时让终端响铃（\\a），后台也能及时注意到；不调用 PowerShell，跨系统可用，可调次数、间隔、节流与静音。"
+    "title": "对话提示音",
+    "description": "对话结束时响（完成 / turn-stopping）、Agent 提问时响（ask_user_question）、请求权限时响（approval），三种不同提示音，后台也能注意到；不调用 PowerShell，跨系统可用。"
   }
 }

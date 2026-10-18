@@ -60,8 +60,26 @@ ctx.effect(() => dispose)
 | `agent/created` / `agent/disposed` | serial / emit | 按 Agent 注册与回收 |
 | `session/event` | emit | 会话事件推送（慎用，优先投影） |
 | `approval/request` | waterfall | 审批（见上） |
+| `user-questions/request` | waterfall | Agent 提问（`ask_user_question`），改结果需返回答案 |
+| `agent/turn-stopping` | serial | 一轮即将结束；监听器可以 `agent.steer()` 让对话继续，所以提示音要“只观察、不干预” |
 
-## 5. 调试事件的正确姿势
+补充：`agent/turn-stopping` 是 **serial** 而不是 emit，监听器抛错会影响这一轮收尾。
+只做副作用（例如播放提示音）的监听器必须自己 try/catch，绝不能把异常抛给总线。
+
+## 6. 一个事件挂两个点：可重复的教训
+
+本项目的提示音插件最终挂了四个监听：
+
+| 提示音 | 事件 |
+| --- | --- |
+| 需要决定 | `approval/request` **和** `tools/pre-execute` 返回 `ask` |
+| Agent 提问 | `user-questions/request` |
+| 一轮结束 | `agent/turn-stopping` |
+
+规律：**“用户被要求做决定”在 dsh 里有多条来源**（策略询问、审批服务、会话命令），
+单挂一个事件必然漏。做法是挂全可能来源 + 一个短节流（`minIntervalMs`）把同一决策折叠成一次。
+
+## 7. 调试事件的正确姿势
 
 - **不要**在插件里写“临时日志到文件”然后靠审批触发来验证——一旦插件在审批时被卸载，
   监听器先没了（本项目探针多次这样“没日志”）。
