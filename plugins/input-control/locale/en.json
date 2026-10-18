@@ -1,6 +1,6 @@
 {
   "meta": {
     "displayName": "Input Control",
-    "description": "Click, type, press shortcuts, scroll and drag inside a target window so the Agent can act on what it captures."
+    "description": "Click, type text, press keys, scroll and drag inside a desktop window so the Agent can act on what it screenshotted."
   }
 }

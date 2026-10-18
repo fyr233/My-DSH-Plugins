@@ -1,6 +1,6 @@
 {
   "meta": {
     "displayName": "窗口截图",
-    "description": "按标题或句柄截取本机某个程序窗口，把图像直接交给 Agent 分析。"
+    "description": "截取某个程序窗口或整个桌面（screenshot / capture），把图像直接交给 Agent 分析；按标题或句柄定位窗口。"
   }
 }

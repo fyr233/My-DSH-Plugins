@@ -1,6 +1,6 @@
 {
   "meta": {
     "displayName": "断点续写",
-    "description": "从中断处继续上一轮：/continue 让模型接着自己的输出或工具调用继续，而不是发送“继续”这条新指令。"
+    "description": "从中断处继续上一轮（/continue，continue / resume）：让模型接着自己的输出或工具调用续写，而不是重新发一条“继续”。"
   }
 }
