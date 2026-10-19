@@ -28,10 +28,11 @@
  * user WAV file.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const name = 'approval-sound'
 
@@ -73,6 +74,7 @@ export const Config = {
   },
 }
 
+/** One built-in tone per cue; an empty path means "use the generated WAV". */
 const DEFAULT_SOUNDS = { approval: '', question: '', done: '' }
 
 const DEFAULTS = {
@@ -389,7 +391,9 @@ export function playCue(ctx, kind, options, config, state) {
  *   `ui-approval` renders a panel from) **and** `tools/pre-execute` returning
  *   `ask`. Both are needed: a plugin-management call asking for elevation
  *   appears only as the latter. `minIntervalMs` folds them into one cue.
- * - `question`: `user-questions/request`, the `ask_user_question` seam.
+ * - `question`: `tools/result` of `ask_user_question`, because that tool never
+ *   passes `tools/pre-execute`, `session/tool/call` or a global
+ *   `user-questions/request` listener (all three measured).
  * - `done`: `agent/turn-stopping`, dispatched right before a turn closes.
  *
  * Every listener is a pass-through: it never changes a decision, and a failing
@@ -406,35 +410,58 @@ export function apply(ctx, config = DEFAULTS) {
     sounds: { ...DEFAULT_SOUNDS, ...(config?.sounds ?? {}) },
   }
   const state = createCueState()
+  // Diagnostic switch, off unless asked for: set DSH_APPROVAL_SOUND_DEBUG to a
+  // file path before starting dsh, or create `trace.log` beside this module, to
+  // append one line per event that reaches a listener. The sidecar path is
+  // re-checked per event, so creating/deleting that file turns tracing on/off
+  // without a restart. It answers "which event really fires" — see
+  // docs/experiences/07-debugging-playbook.md.
+  const debugFile = process.env.DSH_APPROVAL_SOUND_DEBUG
+  const sidecarTrace = join(dirname(fileURLToPath(import.meta.url)), 'trace.log')
+  const trace = (line) => {
+    const target = debugFile === undefined || debugFile === '' ? (existsSync(sidecarTrace) ? sidecarTrace : undefined) : debugFile
+    if (target === undefined) return
+    try {
+      appendFileSync(target, `${new Date().toISOString()} ${line}\n`)
+    } catch {}
+  }
 
   // Bind once at load so a broken FFI shows up at startup, not mid-conversation.
   if (process.platform === 'win32') bindWindowsPlayer(state, ctx)
+  trace(`apply pid=${process.pid} platform=${process.platform}`)
 
   const cue = (kind, options = {}) => {
     try {
-      playCue(ctx, kind, options, settings, state)
+      trace(`cue ${kind} played=${playCue(ctx, kind, options, settings, state)}`)
     } catch (error) {
+      trace(`cue ${kind} failed ${String(error)}`)
       ctx.logger?.warn?.('approval-sound: could not play the %s cue: %s', kind, String(error))
     }
   }
 
   const disposers = [
     ctx.on('approval/request', async (request, next) => {
+      trace(`event approval/request tool=${String(request?.toolName)}`)
       cue('approval', { toolName: request?.toolName })
       return next()
     }),
     ctx.on('tools/pre-execute', async (exec, next) => {
       const decision = await next()
+      // `ask` means "show the approval panel"; allow/deny stay silent.
       if (decision?.kind === 'ask' || decision?.action === 'ask' || decision === 'ask') {
+        trace(`event tools/pre-execute ask tool=${String(exec?.name)}`)
         cue('approval', { toolName: typeof exec?.name === 'string' ? exec.name : '' })
       }
       return decision
     }),
-    ctx.on('user-questions/request', async (request, next) => {
-      cue('question')
-      return next()
+    // `ask_user_question` never passes tools/pre-execute or session/tool/call: it
+    // goes straight from dispatch to a result, so `tools/result` is the only
+    // event that sees it (measured, see docs/experiences/04-events-and-scopes.md).
+    ctx.on('tools/result', (exec) => {
+      if (exec?.name === 'ask_user_question') cue('question')
     }),
     ctx.on('agent/turn-stopping', async () => {
+      trace('event agent/turn-stopping')
       cue('done')
     }),
   ]

@@ -21,7 +21,9 @@
     },
     {
       "dir": "approval-sound",
-      "tags": ["approval", "notification", "windows"]
+      "tags": ["approval", "notification", "windows"],
+      "status": "retired",
+      "note": "已退役：功能由 npm 包 dsh-ui-sound 取代（78 cue × 12 音色包、Web Audio 合成、待处理交互提醒）。代码保留备查，不再安装。"
     }
   ]
 }

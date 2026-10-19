@@ -43,6 +43,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "status": {
+            "enum": ["active", "retired"],
+            "description": "retired 的插件仍保留在仓库里供查阅，但不安装、不进表格。"
+          },
+          "note": {
+            "type": "string",
+            "description": "为什么退役、由谁取代。"
           }
         }
       }

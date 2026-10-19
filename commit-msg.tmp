@@ -1,0 +1,22 @@
+window-capture 2.2：截图后播放确认音；退役 approval-sound；文档按类别拆分
+
+截图确认音（Host 侧）：
+- 新增 cue.js：koffi 进程内同步调 winmm!sndPlaySoundW，不启动任何子进程
+- 提示音在内存合成（1318→1760 Hz 两声上行），缓存到系统临时目录
+- Config 新增 cue 开关（默认开），播放失败只记日志、不影响截图结果
+- 理由是动作发生在 Host：Host/Client 分离时页面里的声音用户听不到
+- 自检覆盖 WAV 结构、koffi 探测、非 Windows 回退与 cue 开关
+
+approval-sound：
+- catalog 标记 retired，不再安装、不进表格与 --list，代码保留备查
+- 功能由 npm 包 dsh-ui-sound 取代（78 cue × 12 音色包、Client 端 Web Audio 合成）
+
+文档按你要求分类，机制与本机技巧不再混写：
+- docs/experiences/08-client-plugins.md：dsh.client manifest、__ModuleLoader__ 协议、
+  slot 的 list/keyed 规则、uiSession 晚注册、pendingInteraction、自动播放策略
+- docs/local-setup/README.md：schannel 失败时用 CONNECT 隧道访问 GitHub、火绒拦截、
+  沙箱拒绝范围、git 位置、重载顺序
+
+校验器：
+- 支持 catalog 的 retired 状态（schema + 表格/列表过滤）
+- 新增检查：入口 import 的本地模块必须出现在 files[]（这次真的漏了 cue.js）

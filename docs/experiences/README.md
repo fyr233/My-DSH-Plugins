@@ -15,6 +15,10 @@
 | [05-install-and-lifecycle.md](./05-install-and-lifecycle.md) | 要安装/卸载/更新插件，或“改了没生效” |
 | [06-windows-native.md](./06-windows-native.md) | 要在 Windows 上做截图、输入、声音等系统能力 |
 | [07-debugging-playbook.md](./07-debugging-playbook.md) | 插件不出声/不触发/不显示，需要定位 |
+| [08-client-plugins.md](./08-client-plugins.md) | 要写 Web 半边插件（声音、通知、UI 反馈），或分不清该放 Host 还是 Client |
+
+本目录只放 **dsh 机制**层面的结论。本机环境相关的（GitHub 访问、火绒、沙箱、git 位置）
+在 [../local-setup](../local-setup/README.md)，两边不混。
 
 ## 十条最容易踩坑的结论（速查）
 
@@ -39,3 +43,10 @@
 10. **验证要观察真实证据**：`application: applied` 不代表能力生效；用
     `cordis_inspect_query` 看工具是否出现、看配置条目状态，必要时要用户拿耳朵/眼睛确认。
     见经验 7。
+11. **反馈要放在“人所在的那一侧”**：Host 与 Client 分离时，Host 播的声音没人听得见；
+    但截图这类**动作发生在 Host** 的事情，确认音也该在 Host。见经验 8。
+12. **Web 半边最简写法是 `immediately: true` + `inject: []` + `./lib/client.js`**；
+    `inject` 里写不存在的包名会让插件永远停在 PENDING。见经验 8。
+13. **“待处理交互”（审批/提问）只有 Client 的 `uiSession.sessionStatus.pendingInteraction`
+    能拿到**，且必须 `ctx.inject(['uiSession'], …)` 等它出现——一次性 `ctx.get` 永远是
+    `undefined`，提醒音会静默失效。见经验 8。

@@ -10,10 +10,9 @@
 <!-- 本表格由 scripts/validate.mjs --write 生成，请勿手改。 -->
 | 插件 | 包名 | 版本 | 提供的工具 / 命令 | 平台 |
 | --- | --- | --- | --- | --- |
-| [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.1.0 | `list_windows`、`capture_window` | Windows |
+| [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.2.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
-| [对话提示音](./plugins/approval-sound) | `@local/dsh-plugin-approval-sound` | 3.0.0 | — | Windows |
 <!-- END PLUGINS -->
 
 `window-capture` 与 `input-control` 设计为配合使用：先截图，再按截图中看到的坐标操作，
@@ -226,8 +225,11 @@ node .\plugins\window-capture\test\check.mjs  # 单个插件
 
 [docs/experiences](./docs/experiences/README.md) 记录了从实际开发与排障中得出的 dsh
 架构、插件机制与开发约定（每条都附带证据）：分层模型、事件与作用域、`Config` 与显示元数据、
-安装与热重载、Windows 原生能力、以及按症状组织的排障手册。**动手写新插件前先读一遍**，
-能避开本项目踩过的全部坑。
+安装与热重载、Windows 原生能力、Client 端插件，以及按症状组织的排障手册。
+**动手写新插件前先读一遍**，能避开本项目踩过的全部坑。
+
+[docs/local-setup](./docs/local-setup/README.md) 是**本机环境**的技巧：GitHub 访问在
+schannel 失败时怎么绕、火绒拦截、沙箱拒绝范围、git 位置等。与 dsh 机制无关，单独放。
 
 ## 目录结构
 
@@ -241,7 +243,9 @@ node .\plugins\window-capture\test\check.mjs  # 单个插件
 ├── .github/workflows/validate.yml
 ├── AGENTS.md                # 给 Agent 的规则：只用 plugin_manager 安装
 ├── CONTRIBUTING.md          # 新增插件的约定
-├── docs/experiences/        # dsh 架构与插件开发经验（先读这里）
+├── docs/
+│   ├── experiences/         # dsh 架构与插件机制经验（先读这里）
+│   └── local-setup/         # 本机环境技巧（代理、火绒、沙箱、git）
 ├── package.json             # 仅为本仓库的元数据（不是 profile，不会被安装）
 ├── README.md
 └── plugins/
@@ -250,12 +254,14 @@ node .\plugins\window-capture\test\check.mjs  # 单个插件
     │   ├── package.json     #    dsh.bundle.patch
     │   ├── cordis.patch.yml #    本组合包插入的 Loader 行
     │   ├── index.js         #    插件入口：工具 + Config
+    │   ├── cue.js           #    截图后的确认音（koffi 进程内播放）
     │   ├── capture-worker.cjs #  中完整性的截图工作进程
     │   ├── icon.svg
     │   ├── locale/{en,zh}.json
     │   └── test/check.mjs
     ├── input-control/       # -> @local/dsh-plugin-input-control
-    └── seamless-continue/   # -> @local/dsh-plugin-seamless-continue
+    ├── seamless-continue/   # -> @local/dsh-plugin-seamless-continue
+    └── approval-sound/      # 已退役，保留备查（功能由 npm 包 dsh-ui-sound 取代）
 ```
 
 ## 许可证

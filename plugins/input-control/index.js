@@ -17,6 +17,9 @@ export const name = 'input-control'
 
 export const inject = ['tools']
 
+/** The single source of defaults; `validate` always fills the rest from here. */
+const DEFAULT_CONFIG = { timeoutMs: 10_000 }
+
 /**
  * Row config, overridable from the profile's `cordis.patch.yml`. A patch layer
  * replaces the whole `config` object, so every key stays optional.
@@ -48,8 +51,6 @@ export const Config = {
     },
   },
 }
-
-const DEFAULT_CONFIG = { timeoutMs: 10_000 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(here, 'input-worker.cjs')
@@ -83,7 +84,7 @@ export async function runInput(ctx, request, config = DEFAULT_CONFIG) {
       stdout: { maxBytes: 256 * 1024 },
       stderr: { maxBytes: 64 * 1024 },
     },
-    graceMs: config?.timeoutMs ?? DEFAULT_CONFIG.timeoutMs,
+    graceMs: config.timeoutMs,
   })
   const outcome = await handle.done
   const stdout = handle.collected.stdout?.readFrom(0).text ?? ''

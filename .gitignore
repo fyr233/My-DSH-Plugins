@@ -18,5 +18,8 @@ Desktop.ini
 tmp/
 .tmp/
 
+# 插件诊断开关（DSH_APPROVAL_SOUND_DEBUG 或同名 trace.log）产生的追踪文件
+plugins/*/trace.log
+
 # 本地校验器产生的临时 profile
 .verify/

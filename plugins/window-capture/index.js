@@ -17,10 +17,14 @@ import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createCueState, playShotCue } from './cue.js'
 
 export const name = 'window-capture'
 
 export const inject = ['tools', 'attachments']
+
+/** The single source of defaults; `validate` always fills the rest from here. */
+const DEFAULT_CONFIG = { timeoutMs: 20_000, cue: true }
 
 /**
  * Row config, overridable from the profile's `cordis.patch.yml`. A patch layer
@@ -42,20 +46,26 @@ export const Config = {
         return { issues: [{ message: 'config must be an object', path: [] }] }
       }
       for (const [key, entry] of Object.entries(value)) {
-        if (key !== 'timeoutMs') {
-          return { issues: [{ message: `unknown config key: ${key}`, path: [key] }] }
+        if (key === 'timeoutMs') {
+          if (!Number.isInteger(entry) || entry < 1000 || entry > 120000) {
+            return { issues: [{ message: 'timeoutMs must be an integer from 1000 to 120000', path: ['timeoutMs'] }] }
+          }
+          config.timeoutMs = entry
+          continue
         }
-        if (!Number.isInteger(entry) || entry < 1000 || entry > 120000) {
-          return { issues: [{ message: 'timeoutMs must be an integer from 1000 to 120000', path: ['timeoutMs'] }] }
+        if (key === 'cue') {
+          if (typeof entry !== 'boolean') {
+            return { issues: [{ message: 'cue must be a boolean', path: ['cue'] }] }
+          }
+          config.cue = entry
+          continue
         }
-        config.timeoutMs = entry
+        return { issues: [{ message: `unknown config key: ${key}`, path: [key] }] }
       }
       return { value: config }
     },
   },
 }
-
-const DEFAULT_CONFIG = { timeoutMs: 20_000 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(here, 'capture-worker.cjs')
@@ -89,7 +99,7 @@ export async function runCapture(ctx, request, config = DEFAULT_CONFIG) {
       stdout: { maxBytes: 256 * 1024 },
       stderr: { maxBytes: 64 * 1024 },
     },
-    graceMs: config?.timeoutMs ?? DEFAULT_CONFIG.timeoutMs,
+    graceMs: config.timeoutMs,
   })
   const outcome = await handle.done
   const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
@@ -141,6 +151,9 @@ function methodText(method) {
  */
 export function apply(ctx, config = {}) {
   const settings = { ...DEFAULT_CONFIG, ...config }
+  // One cue instance per plugin load; the Windows FFI binding is created lazily
+  // on the first capture so a missing koffi never delays plugin activation.
+  const cueState = createCueState()
 
   ctx.effect(() => ctx.tools.register({
     name: 'list_windows',
@@ -298,6 +311,16 @@ export function apply(ctx, config = {}) {
           mediaType: 'image/png',
           name: `window-${payload.pid || 'screen'}.png`,
         })
+        // The capture ran on the Host, so the confirmation is played there: a cue
+        // in the page would reach a different machine when the two are split.
+        // Failure is logged and ignored — a silent cue must not fail a capture.
+        if (settings.cue !== false) {
+          try {
+            playShotCue(cueState, ctx.logger)
+          } catch (error) {
+            ctx.logger?.warn?.('window-capture: capture cue failed: %s', String(error))
+          }
+        }
         return {
           title: payload.title ?? '',
           pid: payload.pid ?? 0,

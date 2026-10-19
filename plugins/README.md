@@ -7,10 +7,9 @@
 <!-- 本表格由 scripts/validate.mjs --write 生成，请勿手改。 -->
 | 插件 | 包名 | 版本 | 提供的工具 / 命令 | 平台 |
 | --- | --- | --- | --- | --- |
-| [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.1.0 | `list_windows`、`capture_window` | Windows |
+| [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.2.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
-| [对话提示音](./plugins/approval-sound) | `@local/dsh-plugin-approval-sound` | 3.0.0 | — | Windows |
 <!-- END PLUGINS -->
 
 ## 各插件说明

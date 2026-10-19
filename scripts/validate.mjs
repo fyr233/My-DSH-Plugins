@@ -169,7 +169,12 @@ async function discover() {
   for (const dir of ordered) {
     const absoluteDir = join(PLUGINS_DIR, dir)
     const manifest = await readJson(join(absoluteDir, 'package.json'))
-    if (manifest !== undefined) bundles.push({ dir, absoluteDir, manifest, catalog: declared.get(dir) })
+    if (manifest === undefined) continue
+    const entry = declared.get(dir)
+    if (entry?.status !== undefined && entry.status !== 'active' && entry.status !== 'retired') {
+      error('catalog.json', `plugins/${dir}.status 只能是 active 或 retired，实际是 ${JSON.stringify(entry.status)}`)
+    }
+    bundles.push({ dir, absoluteDir, manifest, catalog: entry, retired: entry?.status === 'retired' })
   }
   /** @type {{dsh?: string} | undefined} */
   bundles.defaults = catalogJson?.defaults
@@ -200,12 +205,17 @@ async function checkPlugin({ dir, absoluteDir, manifest }) {
   }
   const exported = manifest.exports ?? {}
   for (const [subpath, target] of Object.entries(exported)) {
-    if (typeof target !== 'string') {
-      called(`exports["${subpath}"] 必须是字符串路径`)
+    // A subpath maps either to a path string or to a conditions object, as
+    // dsh-pet and other published client plugins do: { default: './client.js' }.
+    const resolved = typeof target === 'string'
+      ? target
+      : (target !== null && typeof target === 'object' ? target.default : undefined)
+    if (typeof resolved !== 'string') {
+      called(`exports["${subpath}"] 必须是路径字符串或带 default 的条件对象`)
       continue
     }
-    if (!subpath.includes('*') && !existsSync(join(absoluteDir, target))) {
-      called(`exports["${subpath}"] 指向不存在的文件：${target}`)
+    if (!subpath.includes('*') && !existsSync(join(absoluteDir, resolved))) {
+      called(`exports["${subpath}"] 指向不存在的文件：${resolved}`)
     }
   }
   for (const patchFile of patchFiles) {
@@ -311,6 +321,18 @@ async function checkPlugin({ dir, absoluteDir, manifest }) {
   ]
   for (const file of required) {
     if (existsSync(join(absoluteDir, file)) && !packed.has(file)) called(`files[] 没有包含 ${file}`)
+  }
+  // Local modules the entry imports must ship too: a split implementation (such
+  // as a cue module beside index.js) would otherwise disappear from `pnpm pack`.
+  if (existsSync(join(absoluteDir, entry))) {
+    const source = await readFile(join(absoluteDir, entry), 'utf8')
+    for (const specifier of parseImports(source)) {
+      if (!specifier.startsWith('./')) continue
+      const target = relative(absoluteDir, resolve(absoluteDir, specifier)).split(sep).join('/')
+      if (existsSync(join(absoluteDir, target)) && !packed.has(target)) {
+        called(`入口 import 了 ${specifier}，但 files[] 没有包含 ${target}`)
+      }
+    }
   }
   for (const file of packed) {
     if (!existsSync(join(absoluteDir, file))) called(`files[] 匹配到不存在的 ${file}`)
@@ -443,7 +465,8 @@ async function checkEntry(entryRel, entryAbsolute, manifest) {
 }
 
 function renderRows(bundles) {
-  return Promise.all(bundles.map(async ({ dir, manifest, catalog }) => {
+  // Retired plugins stay in the tree for reference but are not offered.
+  return Promise.all(bundles.filter((bundle) => bundle.retired !== true).map(async ({ dir, manifest, catalog }) => {
     const locale = await readJson(join(PLUGINS_DIR, dir, 'locale', 'zh.json')).catch(() => undefined)
     const title = locale?.meta?.title ?? dir
     const tools = await toolsOf(dir, manifest)
@@ -512,7 +535,8 @@ async function main() {
   const { bundles, defaults } = await discover()
   bundlesDefaultEngines = defaults?.engines
   if (LIST) {
-    for (const bundle of bundles) console.log(bundle.dir)
+    // The install list mirrors the README table: retired plugins are excluded.
+    for (const bundle of bundles.filter((entry) => entry.retired !== true)) console.log(bundle.dir)
     return 0
   }
   for (const bundle of bundles) await checkPlugin(bundle)

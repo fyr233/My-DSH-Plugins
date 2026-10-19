@@ -1,15 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@local/dsh-plugin-window-capture",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
-  "description": "Screenshot one desktop window and hand it to the Agent as an image attachment for visual analysis.",
+  "description": "Screenshot one desktop window and hand it to the Agent as an image attachment for visual analysis, with an audible confirmation.",
   "license": "MIT",
   "main": "index.js",
   "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",
+    "./cue.js": "./cue.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./cordis.patch.yml": "./cordis.patch.yml",
@@ -17,6 +18,7 @@
   },
   "files": [
     "index.js",
+    "cue.js",
     "capture-worker.cjs",
     "cordis.patch.yml",
     "locale/*.json",
