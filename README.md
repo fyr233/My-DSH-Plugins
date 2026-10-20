@@ -13,6 +13,8 @@
 | [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.2.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
+| [思考护栏](./plugins/thinking-guard) | `@local/dsh-plugin-thinking-guard` | 0.1.0 | — | 任意 |
+| [提示词自定义](./plugins/prompt-customizer) | `@local/dsh-plugin-prompt-customizer` | 1.0.0 | `prompt_customizer` | 任意 |
 <!-- END PLUGINS -->
 
 `window-capture` 与 `input-control` 设计为配合使用：先截图，再按截图中看到的坐标操作，
@@ -52,6 +54,7 @@
 | 窗口截图 | `<仓库绝对路径>\plugins\window-capture` |
 | 键鼠控制 | `<仓库绝对路径>\plugins\input-control` |
 | 断点续写 | `<仓库绝对路径>\plugins\seamless-continue` |
+| 提示词自定义 | `<仓库绝对路径>\plugins\prompt-customizer` |
 
 要装全部，就对 `node scripts/validate.mjs --list` 列出的每个目录各调用一次（顺序以
 `catalog.json` 为准）。Agent 需要遵守的交互细节：
@@ -212,6 +215,38 @@ Linux 用 `paplay`（或 `aplay`），macOS 用 `afplay`。
 不改变任何审批结果，也不会自动批准任何请求；提示音失败只记警告，不会卡住对话。
 `onlyWhenBackground` 需要宿主在请求里提供焦点信息；当前载荷不含该字段，所以默认保持 `false`。
 
+### 提示词自定义（prompt-customizer）
+
+在「更多 → 设置 → 提示词自定义」里改三段提示词：身份开场白、`personaPrefix`、`personaSuffix`。
+每段可以单独选择「使用默认」或自定义；自定义留空表示隐藏该段。
+
+- **落盘**：保存走 Harness 的 settings 服务，写入 profile 的 `cordis.patch.yml`，重启后仍生效。
+- **生效时机**：从下一次重新组装的模型步骤开始，不改变已经发出的请求。
+- **恢复默认**：三段都设回 `null` 并持久保存，撤销插件的覆盖，交回 Harness / preset 的当前值，
+  而不是写回某个固定字符串。
+- **范围**：只覆盖当前 profile 的**顶层 Agent**，子 Agent 保持委派角色。完整提示词（`complete`）
+  preset 不支持；只有一个（或没有）组装段的 Agent 会被保守跳过，因为公开 API 不暴露 `complete` 标志。
+- **冲突**：同一 Agent 作用域已有同名段时，回滚该 Agent 的本次注册，不删除其他插件的段；
+  `prompt_customizer` 的 `inspect` 会报告每个 Agent 的状态。
+
+Agent 也可以直接调用 `prompt_customizer` 工具（`get` / `set` / `reset` / `inspect`）：
+`set` 与 `reset` 要求先 `get` 拿到 `expectedRevision`，避免覆盖别处的并发修改。
+GUI 与工具调用的是同一个 `settings.update`，因此两条路径的持久化行为一致。
+
+等价的手工配置：
+
+```yaml
+- id: prompt-customizer
+  name: '@local/dsh-plugin-prompt-customizer'
+  config:
+    overrides:
+      identity: You are a coding assistant.   # null = 使用默认；'' = 隐藏该段
+      prefix: null
+      suffix: 默认用简体中文回答。
+```
+
+> 提示词是普通配置文本，会进入模型请求与会话记录，不要在其中保存密钥。
+
 ## 测试插件
 
 每个插件都有无依赖的自检脚本，覆盖纯逻辑、协议解析与注册接线：
@@ -261,6 +296,15 @@ schannel 失败时怎么绕、火绒拦截、沙箱拒绝范围、git 位置等�
     │   └── test/check.mjs
     ├── input-control/       # -> @local/dsh-plugin-input-control
     ├── seamless-continue/   # -> @local/dsh-plugin-seamless-continue
+    ├── thinking-guard/      # -> @local/dsh-plugin-thinking-guard
+    ├── prompt-customizer/   # -> @local/dsh-plugin-prompt-customizer
+    │   ├── index.js         #    Host：Config、按 Agent 覆盖三段提示词、prompt_customizer 工具
+    │   ├── core.js          #    纯逻辑：校验、按同名段注册与回滚
+    │   ├── client.js        #    设置页「提示词自定义」
+    │   ├── core.test.js     #    node --test 自检
+    │   ├── VERIFICATION.md  #    实测范围与未验证项
+    │   ├── icon.svg
+    │   └── locale/{en,zh}.json
     └── approval-sound/      # 已退役，保留备查（功能由 npm 包 dsh-ui-sound 取代）
 ```
 

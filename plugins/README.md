@@ -10,6 +10,8 @@
 | [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.2.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
+| [思考护栏](./plugins/thinking-guard) | `@local/dsh-plugin-thinking-guard` | 0.1.0 | — | 任意 |
+| [提示词自定义](./plugins/prompt-customizer) | `@local/dsh-plugin-prompt-customizer` | 1.0.0 | `prompt_customizer` | 任意 |
 <!-- END PLUGINS -->
 
 ## 各插件说明
@@ -26,6 +28,11 @@
   一条「继续」。它只修正**模型看到的上下文**，不改动会话日志：`/continue` 投递一条空的
   载体消息，在接收该消息的那一步由 `agent/pre-step` 瀑布处理，并为被中断时缺失结果的工具
   调用补上说明性的恢复结果。持久化日志、GUI 记录、fork 与回放的行为都保持不变。
+- **prompt-customizer**：设置页「提示词自定义」。分别覆盖身份开场白、`personaPrefix` 与
+  `personaSuffix`，每段可选「使用默认」或自定义（留空即隐藏该段）。保存走 Harness 的 settings
+  服务写入 profile，重启后仍生效；「全部恢复默认」把三段设回 `null` 并持久保存，撤销覆盖而不是
+  写回固定文本。只作用于当前 profile 的顶层 Agent，子 Agent 与完整提示词 preset 不覆盖。
+  同时提供 `prompt_customizer` 工具（`get` / `set` / `reset` / `inspect`），与 GUI 共用同一条写入路径。
 - **approval-sound**：三个时刻各响一种音——权限申请（`approval/request` +
   `tools/pre-execute` 的 `ask`）、Agent 提问（`user-questions/request`）、一轮结束
   （`agent/turn-stopping`）。以直通方式监听，不改变任何决策；Windows 上在 dsh 进程内经

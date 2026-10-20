@@ -20,6 +20,14 @@
       "tags": ["conversation", "commands"]
     },
     {
+      "dir": "thinking-guard",
+      "tags": ["conversation", "agent-loop", "reliability"]
+    },
+    {
+      "dir": "prompt-customizer",
+      "tags": ["settings", "prompt", "persona"]
+    },
+    {
       "dir": "approval-sound",
       "tags": ["approval", "notification", "windows"],
       "status": "retired",

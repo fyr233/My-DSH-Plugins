@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Thinking Guard",
+    "description": "Detect thinking leaked into the reply body (<thinking>/<analysis>/<summary>) as the model streams, and reclassify it into reasoning blocks before the message is assembled or stored."
+  }
+}
