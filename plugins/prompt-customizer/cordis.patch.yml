@@ -1,0 +1,4 @@
+- insert:
+    - id: prompt-customizer
+      name: '@local/dsh-plugin-prompt-customizer'
+      config: {}
