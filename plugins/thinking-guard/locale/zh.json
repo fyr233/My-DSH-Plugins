@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "思考护栏",
-    "description": "在接收到模型输出时识别并剥离泄漏进正文的思考内容（<thinking>/<analysis>/<summary>），改写为推理块，避免污染正文与历史回放。"
+    "title": "思考归位",
+    "description": "在流式接收时识别泄漏进正文的思考内容（<thinking>/<analysis>/<summary>），改写为推理块，避免污染正文与历史回放（thinking / reasoning / 思维链）。"
   }
 }

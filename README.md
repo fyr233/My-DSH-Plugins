@@ -13,7 +13,7 @@
 | [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.2.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
-| [思考护栏](./plugins/thinking-guard) | `@local/dsh-plugin-thinking-guard` | 0.1.0 | — | 任意 |
+| [思考归位](./plugins/thinking-guard) | `@local/dsh-plugin-thinking-guard` | 0.1.0 | — | 任意 |
 | [提示词自定义](./plugins/prompt-customizer) | `@local/dsh-plugin-prompt-customizer` | 1.0.0 | `prompt_customizer` | 任意 |
 <!-- END PLUGINS -->
 
@@ -54,6 +54,7 @@
 | 窗口截图 | `<仓库绝对路径>\plugins\window-capture` |
 | 键鼠控制 | `<仓库绝对路径>\plugins\input-control` |
 | 断点续写 | `<仓库绝对路径>\plugins\seamless-continue` |
+| 思考归位 | `<仓库绝对路径>\plugins\thinking-guard` |
 | 提示词自定义 | `<仓库绝对路径>\plugins\prompt-customizer` |
 
 要装全部，就对 `node scripts/validate.mjs --list` 列出的每个目录各调用一次（顺序以

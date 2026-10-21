@@ -10,7 +10,7 @@
 | [窗口截图](./plugins/window-capture) | `@local/dsh-plugin-window-capture` | 2.2.0 | `list_windows`、`capture_window` | Windows |
 | [键鼠控制](./plugins/input-control) | `@local/dsh-plugin-input-control` | 1.1.0 | `click`、`type_text`、`press_keys`、`scroll`、`drag`、`move_mouse` | Windows |
 | [断点续写](./plugins/seamless-continue) | `@local/dsh-plugin-seamless-continue` | 1.2.0 | `/continue` 命令 | 任意 |
-| [思考护栏](./plugins/thinking-guard) | `@local/dsh-plugin-thinking-guard` | 0.1.0 | — | 任意 |
+| [思考归位](./plugins/thinking-guard) | `@local/dsh-plugin-thinking-guard` | 0.1.0 | — | 任意 |
 | [提示词自定义](./plugins/prompt-customizer) | `@local/dsh-plugin-prompt-customizer` | 1.0.0 | `prompt_customizer` | 任意 |
 <!-- END PLUGINS -->
 
@@ -28,6 +28,10 @@
   一条「继续」。它只修正**模型看到的上下文**，不改动会话日志：`/continue` 投递一条空的
   载体消息，在接收该消息的那一步由 `agent/pre-step` 瀑布处理，并为被中断时缺失结果的工具
   调用补上说明性的恢复结果。持久化日志、GUI 记录、fork 与回放的行为都保持不变。
+- **thinking-guard**：在模型输出到达时改写 `llm/stream`，把**以** `<thinking>` / `<analysis>`
+  / `<summary>` 开头的正文块重新分类为推理块，闭标签之后的内容仍留在正文。这样泄漏的思考
+  既不会渲染成答案，也不会在之后每次请求里被回放、被模型模仿放大。只改写接收端，不向会话
+  写入任何内容，也不伪造续写；仅命中出现在块开头的标记，正文中间引用的标签不受影响。
 - **prompt-customizer**：设置页「提示词自定义」。分别覆盖身份开场白、`personaPrefix` 与
   `personaSuffix`，每段可选「使用默认」或自定义（留空即隐藏该段）。保存走 Harness 的 settings
   服务写入 profile，重启后仍生效；「全部恢复默认」把三段设回 `null` 并持久保存，撤销覆盖而不是
