@@ -1,0 +1,26 @@
+# Model-aware Agent Teams tools.
+#
+# The Agent Teams *service* is deliberately left alone: replacing it would
+# dispose every running Team on install. Only the tool surface is swapped, and a
+# bridge wraps ctx.subagents.startActivation to carry the per-member model.
+#
+# Ordering matters: this layer must apply after
+# @deepseek-ai/dsh-experimental-agent-team-profile, which inserts the ids we
+# disable here. install_bundle appends this bundle to the end of the profile
+# list, so the order holds.
+- id: tool-agent-team
+  disabled: true
+
+- insert:
+    # Config is copied verbatim from the Agent Teams profile layer. An insert
+    # row does not inherit the config of the row it replaces, so omitting these
+    # would silently fall back to the service defaults.
+    - id: tool-agent-team-model
+      name: '@local/dsh-plugin-agent-team-model/tool'
+      config:
+        interrupt: true
+        freshProvider: spawn
+        forkProvider: fork
+
+    - id: agent-team-model-bridge
+      name: '@local/dsh-plugin-agent-team-model/bridge'

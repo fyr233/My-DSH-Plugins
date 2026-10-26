@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@local/dsh-plugin-agent-team-model",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Let the Team Lead pick each teammate's LLM route on spawn_teammate, reusing the existing subagent model whitelist and leaving the Agent Teams service untouched.",
+  "license": "MIT",
+  "icon": "./icon.svg",
+  "main": "index.js",
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0",
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./tool": "./tool/index.js",
+    "./bridge": "./bridge/index.js",
+    "./als": "./als.js",
+    "./route": "./route.js",
+    "./host": "./host.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "tool/index.js",
+    "bridge/index.js",
+    "als.js",
+    "route.js",
+    "host.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
+    "verify-vendor.mjs",
+    "test/check.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/check.mjs",
+    "verify": "node verify-vendor.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-experimental-agent-team": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-subagent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "~3.18.5"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-experimental-agent-team": { "optional": true },
+    "@deepseek-ai/dsh-subagent": { "optional": true },
+    "@deepseek-ai/dsh-tools": { "optional": true },
+    "@deepseek-ai/schemastery": { "optional": true }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-experimental-agent-team": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-subagent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "~3.18.5"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
