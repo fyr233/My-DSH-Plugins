@@ -108,6 +108,21 @@ ctx.tools.register({
 - ✅ 通过 `inject` + `ctx.tools` / `ctx.get('subprocess')` 等取得能力
 - ✅ 需要第三方库时写进 `dependencies`（pnpm 会装进插件自己的 `node_modules`）
 - ✅ 唯一例外是 **koffi**：dsh 自带、位置固定，可按绝对路径 `createRequire` 加载（见经验 06）
+- ✅ **确实需要宿主包时**（`schemastery` 做 Config、`dsh-tools` 的 `defineTool` 等），用
+  `createRequire(join(process.resourcesPath, 'app.asar', 'dsh', 'package.json'))` 解析后再
+  按 file URL 动态 import。要点与坑（`2026-11` 实测，`agent-team-model/host.js`）：
+
+  - **归档目录名是 `dsh`**，不是安装目录名。`app.asar` 顶层只有
+    `dsh` / `lib` / `node_modules` / `renderer`；用 `dsh-*` 包以外的名字会解析不到。
+  - 三个 `dsh-*` 包只在 `dsh/node_modules` 下；`schemastery`、`cordis` 在
+    `app.asar/node_modules`（Electron 层）另有一份**同版本但字节不同**的副本。
+  - `schemastery` 有 `import`/`require` 双条件：`require.resolve` 会拿到 `lib/index.cjs`，
+    与宿主 ESM 加载的 `lib/index.mjs` **不是同一个模块实例**。仅用它构造 Config 时无碍
+    （cordis 走结构化 `~standard`），但不要声称"共享实例"。
+  - **不要在入口 `index.js` 里做这件事**：`scripts/validate.mjs` 会用原生 `import` 加载入口，
+    缺 `process.resourcesPath` 时直接 `MODULE_NOT_FOUND` 报错。把宿主解析放进一个被动态加载的
+    子模块（如 `tool/index.js`，经 TLA 使用），入口保持无宿主依赖——`agent-team-model` 因此能过
+    `validate.mjs`，而 `thinking-guard` / `prompt-customizer`（入口即 require 宿主包）不能。
 
 ## 6. 生命周期与热替换
 

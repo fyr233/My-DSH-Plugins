@@ -12,8 +12,8 @@
  *
  * Exit code 1 on any error, so CI can gate on it.
  */
-import { existsSync } from 'node:fs'
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { closeSync, existsSync, openSync, readdirSync, readSync } from 'node:fs'
+import { open, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -101,9 +101,128 @@ async function expand(pluginDir, patterns) {
   return matched
 }
 
+/**
+ * Locate the installed desktop app's `app.asar`, if this machine has one.
+ * Best-effort by design: CI and non-Windows checkouts simply skip the positive
+ * archive check instead of failing.
+ *
+ * `Programs` holds several Electron apps, so "first readable archive wins" would
+ * happily validate against an unrelated one. Instead every candidate is probed
+ * and the Harness archive is identified by its own package name.
+ *
+ * @returns `{ path }`, or undefined when no readable Harness archive is found.
+ */
+function locateHostArchive() {
+  const candidates = []
+  if (typeof process.resourcesPath === 'string' && process.resourcesPath !== '') {
+    candidates.push(join(process.resourcesPath, 'app.asar'))
+  }
+  const localAppData = process.env.LOCALAPPDATA
+  if (typeof localAppData === 'string' && localAppData !== '') {
+    const programs = join(localAppData, 'Programs')
+    if (existsSync(programs)) {
+      for (const name of readdirSyncSafe(programs)) {
+        candidates.push(join(programs, name, 'resources', 'app.asar'))
+      }
+    }
+  }
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue
+    if (isHarnessArchive(candidate)) return { path: candidate }
+  }
+  return undefined
+}
+
+/**
+ * Read an archive's header JSON and its data base offset.
+ * @param archive - absolute path to the archive.
+ * @returns `{ header, dataBase }`, or undefined when the header is unreadable.
+ */
+function readArchiveHeaderSync(archive) {
+  const fd = openSync(archive, 'r')
+  try {
+    const preamble = Buffer.alloc(16)
+    readSync(fd, preamble, 0, 16, 0)
+    const headerPickle = preamble.readUInt32LE(4)
+    const jsonLength = preamble.readUInt32LE(12)
+    if (jsonLength <= 0 || jsonLength > 64 * 1024 * 1024) return undefined
+    const body = Buffer.alloc(jsonLength)
+    readSync(fd, body, 0, jsonLength, 16)
+    return { header: JSON.parse(body.toString('utf8')), dataBase: 8 + headerPickle }
+  } catch {
+    return undefined
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * Whether an archive is the Harness desktop app, judged by its root manifest.
+ * Non-circular on purpose: the positive directory check below must not be what
+ * decides which archive to check.
+ * @param archive - absolute path to the archive.
+ * @returns true when the root package declares a `*dsh-desktop*` name.
+ */
+function isHarnessArchive(archive) {
+  const parsed = readArchiveHeaderSync(archive)
+  if (parsed === undefined) return false
+  const root = parsed.header.files?.['package.json']
+  if (root === undefined) return false
+  const fd = openSync(archive, 'r')
+  try {
+    const buffer = Buffer.alloc(Number(root.size ?? 0))
+    readSync(fd, buffer, 0, buffer.length, parsed.dataBase + Number(root.offset ?? 0))
+    const pkg = JSON.parse(buffer.toString('utf8'))
+    return typeof pkg.name === 'string' && pkg.name.includes('dsh-desktop')
+  } catch {
+    return false
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * `readdirSync` that returns [] instead of throwing.
+ * @param path - directory to list.
+ * @returns entry names.
+ */
+function readdirSyncSafe(path) {
+  try {
+    return readdirSync(path)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Collect the archive directory each plugin actually declares in its source.
+ * @returns `[file, directory]` pairs.
+ */
+async function declaredArchiveDirs() {
+  const found = []
+  for (const dir of readdirSyncSafe(PLUGINS_DIR)) {
+    const absoluteDir = join(PLUGINS_DIR, dir)
+    if (!existsSync(absoluteDir)) continue
+    if (!(await stat(absoluteDir).catch(() => undefined))?.isDirectory()) continue
+    for (const file of await walk(absoluteDir)) {
+      if (!/\.(?:js|mjs|cjs)$/u.test(file)) continue
+      const text = await readFile(file, 'utf8')
+      for (const m of text.matchAll(/'app\.asar',\s*'([^']+)'/gu)) {
+        // `for (const archive of ['app.asar', 'app'])` is the archive-form loop,
+        // not a directory declaration; the adjacent string there is `'app'`.
+        if (m[1] === 'app') continue
+        found.push([file, m[1]])
+      }
+      for (const m of text.matchAll(/HARNESS_ROOT\s*=\s*'([^']+)'/gu)) {
+        found.push([file, m[1]])
+      }
+    }
+  }
+  return found
+}
+
 /** Check a source file references only thing the package actually declares. */
-function parseImports(source) {
-  // Strip comments and string literals that are not import targets, so prose in
+function parseImports(source) {  // Strip comments and string literals that are not import targets, so prose in
   // JSDoc or a description string can never look like a dependency.
   const code = source
     .replace(/\/\*[\s\S]*?\*\//gu, '')
@@ -231,9 +350,12 @@ async function checkPlugin({ dir, absoluteDir, manifest }) {
   }
 
   // --- engine compatibility -------------------------------------------------
+  // Prerelease tags are allowed: the Host itself ships as `0.2.1-rc.N`, and
+  // `">=0.2.1"` excludes every `0.2.1-rc.N` because a prerelease sorts below its
+  // release. A range that cannot name a prerelease cannot express real support.
   const engines = { ...(bundlesDefaultEngines ?? {}), ...(manifest.engines ?? {}) }
-  if (typeof engines.dsh !== 'string' || !/^[<>=~^*\s\d.xX|-]+$/u.test(engines.dsh)) {
-    called('应在 engines.dsh 声明支持的 dsh SemVer 范围，例如 ">=0.2.0 <0.3.0"')
+  if (typeof engines.dsh !== 'string' || !/^[<>=~^*\s\d.xX|A-Za-z.+-]+$/u.test(engines.dsh)) {
+    called('应在 engines.dsh 声明支持的 dsh SemVer 范围，例如 ">=0.2.0 <0.3.0" 或 ">=0.2.1-rc.2 <0.3.0"')
   }
 
   // --- peer/dev dependency pairing ------------------------------------------
@@ -541,6 +663,49 @@ async function main() {
   }
   for (const bundle of bundles) await checkPlugin(bundle)
   await checkDocs()
+
+  // --- host path discipline ------------------------------------------------
+  // A plugin may address the Host only by its real archive layout. Using any
+  // other name for the package directory produces a path that resolves to
+  // nothing at runtime, and the failure surfaces only after install. The tokens
+  // are built from char codes so this check cannot be defeated by the very
+  // string-vs-string confusion it exists to catch.
+  //
+  // Limits, stated so nobody trusts it further than it goes: the substring scan
+  // cannot see a computed or split name. The positive half below is stronger —
+  // it reads the installed archive and compares, instead of trusting a constant.
+  const ARCHIVE_DIR = String.fromCharCode(100, 115, 104) // "dsh", the asar package directory
+  const FORBIDDEN_HOST_NAME = String.fromCharCode(87, 111, 114, 107, 66, 117, 100, 100, 121)
+  const scanTargets = [PLUGINS_DIR, join(ROOT, 'docs'), join(ROOT, 'scripts')]
+  const scanFiles = [join(ROOT, 'README.md'), join(ROOT, 'catalog.json'), join(ROOT, 'AGENTS.md')]
+  const scan = []
+  for (const root of scanTargets) {
+    if (existsSync(root)) scan.push(...await walk(root))
+  }
+  for (const file of scanFiles) {
+    if (existsSync(file)) scan.push(file)
+  }
+  for (const file of scan) {
+    if (!/\.(?:js|mjs|cjs|json|md|yml|yaml)$/u.test(file)) continue
+    const text = await readFile(file, 'utf8')
+    if (!text.includes(FORBIDDEN_HOST_NAME)) continue
+    error(rel(file), `不要把宿主安装名当作 asar 内的目录名：归档目录是 "${ARCHIVE_DIR}"，不要写 "${FORBIDDEN_HOST_NAME}"`)
+  }
+
+  // Positive half: when the desktop app is installed, read the real archive
+  // header and prove the declared directory exists. Skipped silently on a
+  // machine without the app so CI and Linux checkouts stay green.
+  const archive = locateHostArchive()
+  if (archive !== undefined) {
+    const parsed = readArchiveHeaderSync(archive.path)
+    const entries = parsed === undefined ? undefined : Object.keys(parsed.header.files ?? {})
+    if (entries !== undefined) {
+      for (const [file, declared] of await declaredArchiveDirs()) {
+        if (entries.includes(declared)) continue
+        error(rel(file), `声明的宿主归档目录 "${declared}" 不在 ${archive.path} 的顶层；实测顶层为 ${JSON.stringify(entries)}`)
+      }
+    }
+  }
 
   // --- generated documentation ---------------------------------------------
   const rows = await renderRows(bundles)
