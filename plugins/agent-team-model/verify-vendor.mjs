@@ -24,7 +24,11 @@ const DEFAULT_BASELINE = join(HERE, '..', '..', '.scratch', 'vendor-baseline', '
 
 /** Markers that must exist in the patched copy. */
 const REQUIRED = [
-  ['route planner import', 'import { planTeammateRoute } from "../route.js";'],
+  ['route planner import', 'import { pickSelectedRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";'],
+  // Every identifier imported from route.js must actually be used, and every
+  // route.js helper the tool calls must be imported. A missing one is a runtime
+  // ReferenceError that unit tests never see, because they only load route.js.
+  ['route seam used', 'pickSelectedRoute(projection)'],
   ['tag transport import', 'import { withTeammateAgentOptions } from "../als.js";'],
   ['host loader import', 'import { loadHostPackage } from "../host.js";'],
   ['host route resolver', 'const { parentAgentOptionsForDelegation } = await loadHostPackage("@deepseek-ai/dsh-subagent");'],
@@ -32,6 +36,10 @@ const REQUIRED = [
   ['provider parameter', '\t\t\t\tprovider: {'],
   ['effort parameter', '\t\t\t\treasoning_effort: {'],
   ['tagged spawn', 'withTeammateAgentOptions(agentOptions, () => ctx.agentTeams.spawnTeammate(agent, {'],
+  // The vendored copy is re-patched on every Host upgrade; without these markers
+  // a rebase could silently drop the route-change feature and still be green.
+  ['route change tool', 'name: "set_teammate_model"'],
+  ['route change seam', 'selectForNextRequest'],
 ]
 
 /** Markers that must be gone: the unpatched shapes, and static Host imports. */
@@ -65,6 +73,32 @@ for (const [label, marker] of REQUIRED) {
 }
 for (const [label, marker] of FORBIDDEN) {
   if (vendored.includes(marker)) failures.push(`still present ${label}: ${JSON.stringify(marker)}`)
+}
+
+/**
+ * Every helper the vendored tool calls must be imported from ./route.js.
+ *
+ * This is the check that would have caught `pickSelectedRoute is not defined`:
+ * the unit suite only loads route.js, so a missing import in tool/index.js is
+ * invisible to it and fails for the first time at a live tool call.
+ */
+const routeSource = await readFile(join(HERE, 'route.js'), 'utf8')
+const exportedHelpers = [...routeSource.matchAll(/^export function (\w+)/gmu)].map((m) => m[1])
+const importLine = vendored.match(/^import \{([^}]+)\} from "\.\.\/route\.js";$/mu)
+if (importLine === null) {
+  failures.push('missing route.js import line in the vendored tool')
+} else {
+  const imported = new Set(importLine[1].split(',').map((s) => s.trim()).filter(Boolean))
+  const body = vendored.slice(vendored.indexOf(importLine[0]) + importLine[0].length)
+  for (const helper of exportedHelpers) {
+    const used = new RegExp(`\\b${helper}\\s*\\(`, 'u').test(body)
+    if (used && !imported.has(helper)) {
+      failures.push(`route helper used but not imported: ${helper}() — a live call would throw ReferenceError`)
+    }
+    if (!used && imported.has(helper)) {
+      failures.push(`route helper imported but never used: ${helper}() — drop it or wire it up`)
+    }
+  }
 }
 
 let baseline

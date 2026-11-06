@@ -9,19 +9,19 @@
  */
 
 /** Reject a route the operator did not allow. */
-function assertAllowed(settings, provider, model) {
+function assertAllowed(settings, provider, model, tool = 'spawn_teammate') {
   if (settings === undefined) return
   let current
   try {
     current = settings.current()
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`spawn_teammate: teammate model selection is misconfigured (${detail})`)
+    throw new Error(`${tool}: teammate model selection is misconfigured (${detail})`)
   }
-  if (!current.enabled) throw new Error('spawn_teammate: child model selection is disabled in Settings')
+  if (!current.enabled) throw new Error(`${tool}: child model selection is disabled in Settings`)
   if (current.allowedModels.some((route) => route.provider === provider && route.model === model)) return
   const allowed = current.allowedModels.map((route) => `${route.provider}/${route.model}`).join(', ')
-  throw new Error(`spawn_teammate: child LLM route "${provider}/${model}" is not allowed; allowed routes: ${allowed}`)
+  throw new Error(`${tool}: child LLM route "${provider}/${model}" is not allowed; allowed routes: ${allowed}`)
 }
 
 /**
@@ -62,4 +62,79 @@ export function planTeammateRoute(settings, parent, args) {
       ...wantsEffort ? { reasoningEffort: args.reasoning_effort } : {},
     },
   }
+}
+
+/**
+ * Decide the route for changing an existing member's model.
+ *
+ * Unlike a spawn, this is always an explicit operation: at least one of
+ * `model` / `provider` / `reasoning_effort` must be given. The result is a
+ * complete selection because the session seam installs a whole route, not a
+ * partial override.
+ *
+ * @param settings - the `subagentModelSelection` service, or undefined when absent.
+ * @param current - the member's current route `{ provider, model, reasoningEffort }`.
+ * @param args - model-facing arguments.
+ * @param tool - tool name used in diagnostics.
+ * @returns `{ provider, model, reasoningEffort? }`.
+ */
+export function planTeammateModelChange(settings, current, args, tool = 'set_teammate_model') {
+  const wantsModel = args.model !== undefined
+  const wantsProvider = args.provider !== undefined
+  const wantsEffort = args.reasoning_effort !== undefined
+  if (!wantsModel && !wantsProvider && !wantsEffort) {
+    throw new Error(`${tool}: pass at least one of \`model\`, \`provider\` or \`reasoning_effort\``)
+  }
+  if (wantsProvider && !wantsModel) {
+    throw new Error(`${tool}: \`provider\` requires \`model\``)
+  }
+
+  const provider = args.provider ?? current?.provider
+  const model = wantsModel ? args.model : current?.model
+  if (provider === undefined || model === undefined) {
+    throw new Error(`${tool}: cannot resolve an effective provider and model for "${args.target ?? 'the member'}"; pass \`provider\` together with \`model\``)
+  }
+  assertAllowed(settings, provider, model, tool)
+
+  // A route change without an explicit effort lets the new model resolve its own
+  // default; an effort-only change keeps the current route.
+  const reasoningEffort = wantsEffort ? args.reasoning_effort : wantsModel || wantsProvider ? undefined : current?.reasoningEffort
+
+  return {
+    provider,
+    model,
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
+  }
+}
+
+/**
+ * The selection a session is heading for: the pending change wins over the last
+ * one actually used, matching the panel's `next = pending ?? lastUsed`.
+ * @param projection - the `modelSelection` projection state, or undefined.
+ * @returns the effective selection, or undefined when the session never chose one.
+ */
+export function pickSelectedRoute(projection) {
+  return projection?.pending ?? projection?.lastUsed ?? undefined
+}
+
+/**
+ * The model a roster row should display. Never falls back to another member's
+ * route: an unresolved model stays unresolved so the caller can omit the field.
+ * @param projection - the member's `modelSelection` projection state.
+ * @param liveOptions - the live agent's creation options, when it is live.
+ * @returns the model id, or undefined.
+ */
+export function pickMemberModel(projection, liveOptions) {
+  return pickSelectedRoute(projection)?.model ?? liveOptions?.model
+}
+
+/**
+ * Whether two selections describe the same route.
+ * @param a - first selection.
+ * @param b - second selection.
+ * @returns true when provider, model and effort match.
+ */
+export function sameRoute(a, b) {
+  if (a === undefined || b === undefined) return false
+  return a.provider === b.provider && a.model === b.model && (a.reasoningEffort ?? undefined) === (b.reasoningEffort ?? undefined)
 }

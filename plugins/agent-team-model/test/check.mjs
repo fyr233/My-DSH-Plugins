@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { planTeammateRoute } from '../route.js'
+import { pickMemberModel, pickSelectedRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from '../route.js'
 import { withTeammateAgentOptions, currentTeammateAgentOptions } from '../als.js'
 import { apply as applyBridge } from '../bridge/index.js'
 import { createHostResolvers, loadHostPackage, resolveHostPackage } from '../host.js'
@@ -260,6 +260,120 @@ test('an unresolvable host package names the package and the requirement', () =>
     () => resolveHostPackage('@deepseek-ai/definitely-not-installed', createHostResolvers(undefined)),
     /cannot resolve the host package "@deepseek-ai\/definitely-not-installed"; this bundle must run inside the Harness desktop app/,
   )
+})
+
+// --- changing an existing member's route --------------------------------
+
+const MEMBER = { provider: 'my-provider', model: 'lead-model', reasoningEffort: 'medium' }
+// Local policy fixture: the suite's shared ROUTES list describes a different
+// provider, so these cases keep their own to stay self-contained.
+const MODEL_ROUTES = [
+  { provider: 'my-provider', model: 'lead-model' },
+  { provider: 'my-provider', model: 'teammate-model' },
+]
+const ENABLED_MODEL = (routes) => ({ current: () => ({ enabled: true, allowedModels: routes }) })
+
+test('a model-only change keeps the member provider and drops the inherited effort', () => {
+  const next = planTeammateModelChange(ENABLED_MODEL(MODEL_ROUTES), MEMBER, { model: 'teammate-model' })
+  assert.deepEqual(next, { provider: 'my-provider', model: 'teammate-model' })
+})
+
+test('an effort-only change keeps the member route', () => {
+  const next = planTeammateModelChange(ENABLED_MODEL(MODEL_ROUTES), MEMBER, { reasoning_effort: 'high' })
+  assert.deepEqual(next, { provider: 'my-provider', model: 'lead-model', reasoningEffort: 'high' })
+})
+
+test('provider plus model sends both', () => {
+  const next = planTeammateModelChange(ENABLED_MODEL(MODEL_ROUTES), MEMBER, { provider: 'my-provider', model: 'teammate-model' })
+  assert.deepEqual(next, { provider: 'my-provider', model: 'teammate-model' })
+})
+
+test('a change with no argument is rejected', () => {
+  assert.throws(
+    () => planTeammateModelChange(ENABLED_MODEL(MODEL_ROUTES), MEMBER, {}),
+    /pass at least one of `model`, `provider` or `reasoning_effort`/,
+  )
+})
+
+test('a provider without a model is rejected', () => {
+  assert.throws(
+    () => planTeammateModelChange(ENABLED_MODEL(MODEL_ROUTES), MEMBER, { provider: 'my-provider' }),
+    /`provider` requires `model`/,
+  )
+})
+
+test('a change outside the whitelist is rejected', () => {
+  assert.throws(
+    () => planTeammateModelChange(ENABLED_MODEL(MODEL_ROUTES), MEMBER, { model: 'other-model' }),
+    /"my-provider\/other-model" is not allowed; allowed routes/,
+  )
+})
+
+test('a disabled selection blocks a member change', () => {
+  const settings = { current: () => ({ enabled: false, allowedModels: ROUTES }) }
+  assert.throws(() => planTeammateModelChange(settings, MEMBER, { model: 'teammate-model' }), /disabled in Settings/)
+})
+
+test('an unresolvable member route is reported, not guessed', () => {
+  assert.throws(
+    () => planTeammateModelChange(ENABLED(ROUTES), {}, { reasoning_effort: 'high' }),
+    /cannot resolve an effective provider and model/,
+  )
+})
+
+test('a model-only change needs a provider when the member route is unknown', () => {
+  // An inactive member with no readable projection has no route to inherit from.
+  // Guessing the Lead's provider would silently route the member elsewhere, so
+  // the planner refuses instead.
+  assert.throws(
+    () => planTeammateModelChange(ENABLED(ROUTES), {}, { model: 'teammate-model' }),
+    /cannot resolve an effective provider and model/,
+  )
+  // Supplying both is the supported path.
+  const plan = planTeammateModelChange(ENABLED(ROUTES), {}, { provider: 'my-provider', model: 'teammate-model' })
+  assert.deepEqual(plan, { provider: 'my-provider', model: 'teammate-model' })
+})
+
+test('the pending selection wins over the last used one', () => {
+  const projection = { lastUsed: { provider: 'my-provider', model: 'old' }, pending: { provider: 'my-provider', model: 'new' } }
+  assert.equal(pickSelectedRoute(projection).model, 'new')
+  assert.equal(pickSelectedRoute({ lastUsed: { provider: 'my-provider', model: 'old' }, pending: null }).model, 'old')
+  assert.equal(pickSelectedRoute({ lastUsed: null, pending: null }), undefined)
+  assert.equal(pickSelectedRoute(undefined), undefined)
+})
+
+test('a member model never falls back to another member route', () => {
+  assert.equal(pickMemberModel({ lastUsed: null, pending: null }, { model: 'live-model' }), 'live-model')
+  assert.equal(pickMemberModel(undefined, undefined), undefined)
+  assert.equal(pickMemberModel({ lastUsed: { provider: 'my-provider', model: 'chosen' }, pending: null }, { model: 'stale' }), 'chosen')
+})
+
+test('the same route compares provider, model and effort', () => {
+  const a = { provider: 'my-provider', model: 'm', reasoningEffort: 'high' }
+  assert.equal(sameRoute(a, { provider: 'my-provider', model: 'm', reasoningEffort: 'high' }), true)
+  assert.equal(sameRoute(a, { provider: 'my-provider', model: 'm' }), false)
+  assert.equal(sameRoute(a, { provider: 'my-provider', model: 'other', reasoningEffort: 'high' }), false)
+  assert.equal(sameRoute(undefined, a), false)
+})
+
+// --- output contract ------------------------------------------------------
+
+test('the member row schema declares every field the tools emit', () => {
+  // `tool/index.js` cannot be imported here (top-level await + Host packages), so
+  // this pins the declared fields textually. The schema sets
+  // `additionalProperties: false`, which makes an undeclared field a hard output
+  // validation failure at runtime — exactly the bug this guards.
+  const source = readFileSync(new URL('../tool/index.js', import.meta.url), 'utf8')
+  const start = source.indexOf('const MEMBER_VIEW_SCHEMA')
+  const end = source.indexOf('/** Expose the member name', start)
+  assert.ok(start >= 0 && end > start, 'MEMBER_VIEW_SCHEMA block is present')
+  const block = source.slice(start, end)
+  for (const field of [
+    'target', 'role', 'status', 'description',
+    'provider', 'context', 'model', 'reasoningEffort', 'diagnostics',
+  ]) {
+    assert.match(block, new RegExp(`\\b${field}:`), `MEMBER_VIEW_SCHEMA must declare "${field}"`)
+  }
 })
 
 // --- report ---------------------------------------------------------------

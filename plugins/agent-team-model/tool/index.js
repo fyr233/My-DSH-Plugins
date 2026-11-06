@@ -1,6 +1,6 @@
 import { loadHostPackage } from "../host.js";
 import { withTeammateAgentOptions } from "../als.js";
-import { planTeammateRoute } from "../route.js";
+import { pickSelectedRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";
 // Host packages come from the running application rather than a static bare
 // import: a directory-linked bundle has no node_modules, so Node's walk-up from
 // this file cannot see the Host's copies and the module would fail to load.
@@ -75,6 +75,13 @@ const MEMBER_VIEW_SCHEMA = {
 			enum: ["fresh", "fork"]
 		},
 		model: { type: "string" },
+		// Reported by set_teammate_model so the caller can confirm the applied
+		// effort; the row schema declares it because `additionalProperties` is
+		// false and an undeclared field would fail output validation.
+		reasoningEffort: { type: "string" },
+		// Reported by set_teammate_model so the caller can confirm the applied
+		// effort; the row schema declares it because `additionalProperties` is
+		// false and an undeclared field would fail output validation.
 		diagnostics: {
 			type: "array",
 			required: true,
@@ -356,6 +363,67 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 			}
 		})));
 		register(scoped.tools.register(defineTool({
+			name: "set_teammate_model",
+			description: "Change one existing teammate's LLM route. Team Lead only. The change applies from the teammate's next request; a turn already running finishes on its old route.",
+			parameters: {
+				target: {
+					type: "string",
+					required: true,
+					description: "Teammate target returned by spawn_teammate or list_agents."
+				},
+				model: {
+					type: "string",
+					description: "New model id for this teammate."
+				},
+				provider: {
+					type: "string",
+					description: "New provider id. Requires `model`; omitted keeps the member's provider."
+				},
+				reasoning_effort: {
+					type: "string",
+					description: "New reasoning effort. Omitted lets a changed model use its own default."
+				}
+			},
+			output: jsonOutput(MEMBER_VIEW_SCHEMA),
+			async execute(args, exec) {
+				const caller = callingAgent(exec.agent, "set_teammate_model");
+				const row = ctx.agentTeams.listMembers(caller).find((member) => member.name === args.target);
+				if (row === void 0) throw new Error(`set_teammate_model: no teammate named "${args.target}"`);
+				if (row.role !== "teammate") throw new Error("set_teammate_model: the Team Lead cannot change its own model");
+				const live = ctx.agents.get(row.id);
+				const session = live?.session ?? ctx.get("sessions")?.get(row.id);
+				if (session === void 0) throw new Error(`set_teammate_model: teammate "${args.target}" has no Session to change`);
+				const projection = ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
+				const previous = pickSelectedRoute(projection) ?? {
+					provider: live?.options.provider,
+					model: live?.options.model,
+					reasoningEffort: live?.options.reasoningEffort
+				};
+				const selection = planTeammateModelChange(ctx.get("subagentModelSelection"), previous, args);
+				if (sameRoute(pickSelectedRoute(projection), selection)) return modelMember(row);
+				const llm = ctx.get("llm");
+				if (llm !== void 0) await llm.resolveCallConfig({
+					provider: selection.provider,
+					model: selection.model,
+					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
+				}, exec.signal);
+				if (live === void 0) {
+					session.append("model/selection", selection);
+				} else {
+					const controller = ctx.get("sessionController");
+					const apply = controller?.agents?.selectForNextRequest;
+					if (typeof apply !== "function") throw new Error("set_teammate_model: this Host does not expose the Session model-selection seam; restart the app after upgrading");
+					apply.call(controller.agents, live, selection);
+				}
+				return {
+					...modelMember(row),
+					model: selection.model,
+					provider: selection.provider,
+					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
+				};
+			}
+		})));
+		register(scoped.tools.register(defineTool({
 			name: "send_message",
 			description: "Send one message to another Team member. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.",
 			parameters: {
@@ -389,7 +457,22 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 			parameters: {},
 			output: jsonOutput(MEMBER_LIST_VALUE_SCHEMA),
 			execute(_args, exec) {
-				return Promise.resolve(ctx.agentTeams.listMembers(callingAgent(exec.agent, "list_agents")).map(modelMember));
+				const members = ctx.agentTeams.listMembers(callingAgent(exec.agent, "list_agents"));
+				return Promise.resolve(members.map((member) => {
+					const view = modelMember(member);
+					// The roster's own model is the creation-time value, and for a
+					// non-live member it falls back to the Lead's route. Prefer the
+					// Session's live selection and omit the field when it cannot be
+					// resolved, so one member's model never stands in for another's.
+					const live = ctx.agents.get(member.id);
+					const session = live?.session ?? ctx.get("sessions")?.get(member.id);
+					const projection = session === void 0 ? void 0 : ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
+					const model = pickMemberModel(projection, live?.options);
+					return model === void 0 ? view : {
+						...view,
+						model
+					};
+				}));
 			}
 		})));
 		register(scoped.tools.register(defineTool({

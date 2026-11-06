@@ -18,6 +18,18 @@ spawn_teammate({
 })
 ```
 
+创建之后也能改（Lead-only）：
+
+```js
+set_teammate_model({ target: 'reviewer', model: 'other-model' })
+```
+
+- **下一次请求生效**；正在跑的 turn 用旧路由跑完。
+- 成员处于 `inactive` 时也能改：写进会话的 `model/selection`，下次唤起时生效。
+- 与 `spawn_teammate` 共用同一份白名单和 preflight；重复设置同一路由不会多落事件。
+- `list_agents` 显示的模型取自会话的 `modelSelection` 投影（`pending ?? lastUsed`），
+  不会因为成员不 live 就变成 Lead 的模型。
+
 三个参数全不传时，行为与未安装本插件**完全一致**。
 
 ## 白名单复用（不新增配置）
@@ -111,13 +123,32 @@ plugin_manager({ action: 'install_bundle', target: '<仓库>/plugins/agent-team-
 ```
 
 - 本 bundle 会 `disable` 内置的 `tool-agent-team`，并插入 `tool-agent-team-model` 与
-  `agent-team-model-bridge`。
+  `agent-team-model-bridge`。装完后可这样确认（`Config.listConfigs`，id 带 `include:` 前缀）：
+
+  | entry id | 期望 status | 含义 |
+  | --- | --- | --- |
+  | `include:tool-agent-team` | `inactive` | 内置工具行已禁用；若仍为 `schema` 说明 disable 没生效，两套工具会同名冲突 |
+  | `include:tool-agent-team-model` | `schema` | 我们的工具行已激活，Config 已投影 |
+  | `include:agent-team-model-bridge` | `absent` | 行存在但无 Config 导出（`absent` 指"无 schema"，不是"未挂载"） |
+
+  以上三项均已在 rc.3 真机实测确认。
+
+  bridge 是否真的包上了 `startActivation`，**无法从 Inspect 直接看出**——它写在服务实例的自有属性上，
+  而 `subagents` 的接口契约里没有对应可观测项。可靠的判据是行为：`spawnTeammate` 内部只转发
+  `{ prompt, parent }`，所以**只要两个成员各自落到不同模型，bridge 就一定在生效**
+  （`modelSelection.lastUsed` 分别命中即为证）。这条推理在 rc.3 上已实测成立。
 - **顺序要求**：必须排在 `@deepseek-ai/dsh-experimental-agent-team-profile` 之后
   （`install_bundle` 追加到 bundles 末尾，天然满足）。装错顺序会静默失效。
   该层不在 `dsh.profile.bundles` 里时，本插件的工具行会停在
   `pending (waiting for service: agentTeams)` —— 不是插件的问题，先修 profile。
 - 插入行的 `config` 是**抄全**的（`interrupt` / `freshProvider` / `forkProvider`）：
   insert 不继承被覆盖行的配置，漏抄会退回服务默认值。
+- **`list_agents` 对 inactive 成员仍显示 Lead 的模型，这是预期行为。** 服务层给的行在成员非 live 时
+  回退到 `root.options.model`（`agent-team:922`）；插件只在能读到该成员的 `modelSelection` 投影时才覆盖，
+  读不到就**原样返回**（`model === undefined ? view : {...view, model}`），以免用别人的路由冒充。
+  所以看到多个成员同一个模型时，先确认它们是不是都 inactive。
+  实测（2026-11-06）：`remove_bundle` → `install_bundle` **确实**会加载新模块——同一批次新增的
+  `set_teammate_model` 在重装后立即出现在 `Tool.listTools` 里，可作判据。
 - **`engines.dsh` 要覆盖预发布版本**：宿主以 `0.2.1-rc.N` 形式发布，而
   `">=0.2.1 <0.3.0"` 按 semver 不接受任何 `0.2.1-rc.N`（预发布低于对应正式版），安装会被
   `incompatible-version` 拒绝。当前写的是 `">=0.2.1-rc.2 <0.3.0"`；宿主再往前推 rc 号时
@@ -128,8 +159,8 @@ plugin_manager({ action: 'install_bundle', target: '<仓库>/plugins/agent-team-
 ## 验证
 
 ```bash
-node plugins/agent-team-model/test/check.mjs      # 23 项：路由规划、白名单、ALS、bridge 代理语义、宿主包解析
-node plugins/agent-team-model/verify-vendor.mjs   # vendor 漂移检查（断言基线 sha256 + 宿主 import 已改造）
+node plugins/agent-team-model/test/check.mjs      # 35 项：路由规划与变更、白名单、ALS、bridge 代理语义、宿主包解析、输出契约
+node plugins/agent-team-model/verify-vendor.mjs   # vendor 漂移检查（基线 sha256 + 宿主 import 已改造 + 换路由工具未丢）
 ```
 
 `test/support/cordis-traps.mjs` 是对 cordis `createTraceable` 的忠实复刻（`get` 每次返回新的函数代理、
@@ -151,13 +182,61 @@ node plugins/agent-team-model/verify-vendor.mjs   # vendor 漂移检查（断言
 （`agent-team:922`），两个不同模型的成员会显示成同一个模型。可靠的读法是会话投影缓存
 `~/.dsh/storages/session_projcache/sessions/<sessionId>.json` 里的 `modelSelection.lastUsed`。
 
+### 验证一次运行中换模型
+
+`set_teammate_model` 需要 Lead 会话的**工具表在字段注册之后**组装，所以装完插件或更新代码后，
+要在新会话里发起调用（不必重启应用）。
+
+1. `set_teammate_model({ target: '<成员名>', model: '<白名单内的模型>' })`；
+   **成员 inactive 且读不到其投影时，必须同时给 `provider`**——否则没有可信的当前路由可继承，
+   会明确报错 `cannot resolve an effective provider and model`（而不是猜一个）。
+   实测：`{ model }` 单独 → 抛错；`{ provider, model }` → 成功；`{ reasoning_effort }` 单独 → 抛错。
+2. 读该成员的投影缓存，`modelSelection.lastUsed`（或 `pending`）应变成新路由；
+3. 给该成员 `send_message` 一句话，等它回复后再读一次投影——`lastUsed` 更新即说明
+   **下一次请求真的走了新模型**；
+4. 若被白名单拒绝，错误信息会列出 `allowedModels` 的全部可用路由；改白名单请改 profile 的
+   `cordis.patch.yml` 里 `subagent-model-selection-settings` 那一行。
+
+> 换模型会在该成员会话里插入一条持久的 `[model changed: …]` 提示（宿主 `installModelSelection`
+> 的行为），这是预期结果，不要把它当成噪音删掉。
+
+**已知限制：目标成员必须是 live 的。** 实测（2026-11-06，由成员 `route-admin` 经工具调用验证）：
+对一个 inactive 成员调用会报
+
+```
+set_teammate_model: teammate "<name>" has no Session to change
+```
+
+原因是该成员的 Session 没有挂载进内存（`ctx.agents.get()` 与 `ctx.get("sessions").get()` 都取不到）。
+这**不是**权限、白名单或 provider 缺失的问题——它发生在更早的一步。
+要让成员变成 live：先 `send_message` 给它一句话唤起，再调用。
+同一个实验也确认了工具对成员可见（成员侧 `tools-available: yes`）。
+
+### 端到端实证（2026-11-06，rc.3）
+
+由成员 `route-admin` 在自己 live 时调用本工具、改的是它自己：
+
+| 步骤 | 投影 `modelSelection` |
+| --- | --- |
+| 切换前 | `{provider: my-provider, model: lead-model, reasoningEffort: medium}`，`seq 39` |
+| 切到 `teammate-model` | `{provider: my-provider, model: teammate-model}`，`seq 60`，`pending: null` |
+| 切回 `lead-model` | `{provider: my-provider, model: lead-model}`，`seq 79` |
+
+- `pending: null` 且 `lastUsed` 变化 ⇒ 新路由**已被实际请求消费**，不只是排队；
+- 切成 `teammate-model` 后该成员那一轮失败（该模型当时不可用），反过来证明**下一次请求确实走了新模型**；
+- 返回体就是 `MEMBER_VIEW_SCHEMA` 的成员行、无多余字段——输出 schema 与实现一致。
+
 ## 基线
 
 - 上游版本：`@deepseek-ai/dsh-experimental-tool-agent-team@0.2.1-rc.2`（`rc.3` 的该文件未变，
   sha256 仍一致，故基线继续有效）
 - 基线 `lib/index.js` sha256：`cac22fe5f83a179056469cf329def58393c7620eae23b018c66f42c37d849f63`
-- 补丁形状：按 `verify-vendor.mjs` 的多重集比对，删 5 行、加 130 行
-  （3 处宿主 import 改为经 `host.js` + 3 参数 + 路由规划/preflight + 带标记的 spawn）
+- 补丁形状：`verify-vendor.mjs --report` 实测（多重集比对）删 6 行、加 277 行
+  （3 处宿主 import 改为经 `host.js` + 3 参数 + 路由规划/变更 + preflight + 带标记的 spawn + `set_teammate_model`）
+  > 这两个数字随补丁增长而变，**不要当成断言**——`verify-vendor.mjs` 只校验"vendored 不比 baseline 短"
+  > 以及必需/禁止标记，不校验具体行数。要准确值请现跑 `--report`。
+- 想看具体增删了哪些行：`node plugins/agent-team-model/verify-vendor.mjs --report`
+- 没有基线副本时（如 CI）会打印 `SKIP upstream comparison` 并以 0 退出，仍校验补丁形状——实测确认
 
 宿主升级后 `verify-vendor.mjs` 会报基线漂移，按同一形状重新 rebase。
 
@@ -172,6 +251,22 @@ node plugins/agent-team-model/verify-vendor.mjs   # vendor 漂移检查（断言
 - **宿主包解析依赖打包布局**：`host.js` 假设 `app.asar/dsh`（以及 unpacked 的 `app/dsh`）下带
   `node_modules`。宿主换了打包结构（产品再改名、改走 unpacked 目录）就要跟着调整；失败时报错会
   点名缺失的包名，不会静默降级。
+- **宿主不支持、本插件用私接缝绕开**。路由在 `spawn_teammate` 时经 `agentOptions` 生效；`v5` 新增
+  `set_teammate_model` 支持对**已有成员**改路由（改动从成员下一次请求起生效，正在跑的回合仍走旧路由）。
+  宿主自身三层都不提供原地切换，已逐层核实（`0.2.1-rc.3`）：
+
+  | 层 | 情况 |
+  | --- | --- |
+  | 宿主会话层 | `@Remote("selectModel")`（`dsh-api-session-controller/lib/index.js:793`）存在，但 `liveAgent()` 对 `session.header.origin === "subagent"` 直接返回 `session/agent-busy`（"use subagent delivery for this child session"）；teammate 正是这个来源（`dsh-subagent/lib/index.js:354` 写死 `origin: "subagent"`） |
+  | 宿主 subagent 层 | `dsh-subagent` 服务没有 model / route / select / switch 任何方法 |
+  | 本插件的路 | 走 `sessionController.agents.selectForNextRequest`（写入 `model/selection` 事件 + 设置该 Agent 的 selection），不经过会话层的 subagent 拒绝 |
+
+  > 注意：`controller.agents.selectForNextRequest` **不在 `sessionController` 的服务契约里**（Inspect 只列出
+  > `selectModel` 等公开方法），属于内部属性。宿主若重命名/移除它，工具会明确抛错
+  > （"this Host does not expose the Session model-selection seam"），不会静默失效。
+  > 改完插件代码需 `remove_bundle` → `install_bundle` 或重启，运行中的进程不会自动换模块。
+
+  详见 `docs/plans/agent-team-member-lifecycle.md`（方案 v5：A 已实现，B 删除成员未实现）。
 
 ## License
 

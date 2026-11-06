@@ -197,3 +197,39 @@ Agent Teams 的团队工具全部消失。
   也反证了 `host.js` 的宿主包解析在真机 Electron 下成立——否则工具行加载失败，三个参数不会出现。
 - 注意：`list_agents` 的花名册**不能**用来验证路由。成员非 live 时它回退到 `root.options.model`
   （`agent-team:922`），两个不同模型的成员会显示成同一个模型。
+
+## 12. 调研记录：宿主不支持原地换模型，本插件 v5 自行绕开
+
+最初的问题是"能否改运行中 teammate 的模型"。当时（插件仅到 v4）结论是**不支持**，核查如下：
+
+1. **宿主会话层**：`@Remote("selectModel")`（`dsh-api-session-controller/lib/index.js:793`）机制完整——
+   `installModelSelection()`（`dsh-agent/lib/types/model-selection.js`）把可变 selection 挂到
+   `agent/request`，下一次请求走新路由并插入持久提示 `[model changed: … the session continues with …]`。
+   但它进不去 teammate：`liveAgent()`（`:365`）对 `hasApiSessionSubagentOwner` 为真的会话返回
+   `session/agent-busy`（`reason: "use subagent delivery for this child session"`），该判定第一条就是
+   `session.header.origin === "subagent"`；而 teammate 正是这个来源（`dsh-subagent/lib/index.js:354`
+   写死 `origin: "subagent"`，agent-team 在 `lib/index.js:1032` 经 `ctx.subagents.startActivation` 建成员）。
+   > 易错点：`resolve()` 里 `liveAgent()` 先返回，容易被读成"live 就绕过 ownership 检查"。
+   > 实际 `liveAgent()` 内部自己就做了这个检查——live 的 subagent 会话一样被拒。
+2. **宿主 subagent 层**：`dsh-subagent` 服务没有 model / route / select / switch 任何方法
+   （按方法名正则枚举，候选为空）。
+
+**v5 的做法**：不等宿主放行，改为直接写该 Agent 的 model selection——
+`sessionController.agents.selectForNextRequest(agent, selection)`（追加 `model/selection` 事件 +
+设置 selection），绕开会话层的 subagent 拒绝；工具名 `set_teammate_model`，白名单与 preflight 复用
+`planTeammateModelChange()`。该接缝**不在 `sessionController` 的服务契约内**（Inspect 只暴露
+`selectModel` 等），属内部属性，因此工具在取不到时明确抛错而不是静默降级。
+细节与审核记录见 `docs/plans/agent-team-member-lifecycle.md`（A 已实现，B 删除成员未实现）。
+
+### 12.1 实现依赖的四处接缝（均已核实）
+
+| 依赖 | 核实结果 |
+| --- | --- |
+| `sessionProjections.stateOf(session, "modelSelection")` | 返回投影注册时声明的 **state 形状**（`{lastUsed, pending}`），不是带 `val` 的 wire view；与 `pickSelectedRoute()` 的 `pending ?? lastUsed` 匹配 |
+| `selectForNextRequest(agent, selection)` | `dsh-api-session-controller/lib/index.js:312`，仅两行：`agent.session.append("model/selection", selection)` + `selectionFor(agent).current = selection`，**无 origin 检查** |
+| `"model/selection"` 事件类型 | 在 `dsh-session` 的事件类型白名单内（与 `request/header`、`plan/mode` 并列），`append` 会接受 |
+| cold session 的 `append` | `append()` 无 writer/liveness 守卫，只做 JSON 快照 + 事件校验 + `commit` |
+
+> 已知限制：`list_agents` 对 **inactive** 成员读不到投影，会原样沿用服务层的回退值
+> （`root.options.model`），因此多个 inactive 成员会显示成同一个模型。这是有意为之——
+> 宁可不显示，也不用别人的路由冒充（`tool/index.js` 里 `model === undefined ? view : {...view, model}`）。

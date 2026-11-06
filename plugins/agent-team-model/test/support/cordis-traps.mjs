@@ -12,6 +12,18 @@
  *   - `get` returns a new function proxy each time (never the stored function)
  *   - `set` writes the own property on the raw target
  *   - `delete` and `getOwnPropertyDescriptor` forward to the raw target
+ *
+ * Verified against `@deepseek-ai/cordis@4.0.5` (installed): `createShadowMethod`
+ * (`lib/index.js:117-122`) and `createTraceable` (`:123-158`).
+ *
+ * Deliberately simplified, so do not read more into this fixture than it gives:
+ *   - the real `apply` swaps `thisArg` when it equals the *receiver* of the
+ *     property read (`if (thisArg === outer) thisArg = shadow`); this replica
+ *     compares against the top-level `proxy`. Both are the same object in the
+ *     single-level shape the bridge tests use, which is why the fixture is
+ *     adequate here — it is not adequate for nested/chained services.
+ *   - no `has`, `ownKeys`, `defineProperty`, or symbol-key
+ *     (`symbols.original` / `symbols.tracker`) handling.
  */
 
 /**
