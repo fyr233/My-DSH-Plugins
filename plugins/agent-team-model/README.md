@@ -27,7 +27,10 @@ spawn_teammate({
 set_teammate_model({ target: 'reviewer', model: 'other-model' })
 ```
 
-- **下一次请求生效**；正在跑的 turn 用旧路由跑完。
+- **下一次请求生效**——注意"请求"是**按 step** 计的，不是按 turn。`agent/request` 的 waterfall
+  载荷里带 `step`（`dsh-agent-loop/lib/index.js:1191-1195`），每个 step 都会重新解析一次路由，
+  所以一个多 step 的 turn 会在**下一个 step** 就换用新模型，而不是等整个 turn 跑完。
+  只有「已经在等模型回复的那一次请求」无法回头。
 - **目标成员必须是 live 的**。`inactive` 成员的 Session 没有挂载进内存，调用会报
   `has no Session to change`——先 `send_message` 唤起再改（实测，见「验证」段）。
 - 成员 inactive 且读不到其投影时，必须同时给 `provider`，否则报
