@@ -105,7 +105,12 @@ model      = projection?.pending ?? projection?.lastUsed ?? live?.options.model 
 
 ### 边界
 
-- 成员 `inactive` 时改同样有效，下次唤醒生效——但**显示**必须也能看到（见上面的三级回退）。
+- ~~成员 `inactive` 时改同样有效，下次唤醒生效~~ —— **实测推翻（2026-11-06）**：inactive 成员的
+  Session 没有挂载进内存（`ctx.agents.get()` 与 `ctx.get("sessions").get()` 都取不到），
+  调用直接抛 `set_teammate_model: teammate "<name>" has no Session to change`，
+  什么都没写进去。要先 `send_message` 把成员唤起成 live 才能改。
+- 纠正后，`model/selection` 的冷写分支（`session === undefined` 时的 `session.append`）
+  **实际不可达**——它依赖一个拿不到的 Session 对象。留着无害，但不要据此声称支持冷成员。
 
 ## 需求 B：删除成员
 
@@ -156,7 +161,7 @@ model      = projection?.pending ?? projection?.lastUsed ?? live?.options.model 
 | 项 | 结论 |
 | --- | --- |
 | B1 行号错（2955/3099/312） | 接受，已改为 2956 / 3098 / 466·669·700 |
-| B2 非 live 成员显示回退到 Lead 模型 | 接受，三级回退 + 去掉 `?? root.options.model`，非 live 用 `ctx.sessions.get(id)` |
+| B2 非 live 成员显示回退到 Lead 模型 | 接受，三级回退 + 去掉 `?? root.options.model`，非 live 用 `ctx.sessions.get(id)`。**实测补注（2026-11-06）：三级回退对 inactive 成员仍失效**——`ctx.sessions.get(id)` 返回 undefined，`pickMemberModel` 得到 undefined，代码原样返回服务层的行（即 Lead 的模型）。要真正修好，得走 `sessionController.inspect(sessionId)` 从持久层读，属于未做的改进。 |
 | B3 retire 不持久、`send_message` 会冷恢复 | 接受，改为"内存态 + 在自有 `send_message` 拦截"，文档标注非持久 |
 | B4 `selectionFor` 惰性安装 / disposer 被丢弃 | 接受，写入前提，并要求不在团队运行中重载 sessionController |
 | B5 零请求成员的 `stateOf` | 已核实：未注册才返回 undefined，新会话拿 init `{lastUsed:null,pending:null}`；仍列入测试 |
@@ -173,7 +178,11 @@ model      = projection?.pending ?? projection?.lastUsed ?? live?.options.model 
 | 切换后不重复设置同一路由 | 不新增 `model/selection` 事件 |
 | 白名单外的路由 | 拒绝，列出行车范围 |
 | `enabled: false` | 拒绝 |
-| 成员 inactive 时切换 | 显示已更新（不显示 Lead 的模型） |
+| 成员 inactive 时切换 | **实测：抛 `has no Session to change`**，不写任何事件；须先 `send_message` 唤起 |
 | 在途 turn 切换 | 当前 turn 用旧路由，下一轮用新路由 |
 | 退役后 `send_message` | 被拦截，成员不被冷恢复 |
 | 不带新参数调用 `spawn_teammate` | 与旧版完全一致（回归） |
+
+> 已验证的完整事件链见 `plugins/agent-team-model/README.md` 的「会话日志里的完整证据链」：
+> `model/selection`(seq 50) → `[model changed: …]` 提示(seq 55) → `request/header` 且
+> `reason: change`(seq 56)。`reason` 从 `resume` 变 `change` 是"真的生效"最直接的标志。
