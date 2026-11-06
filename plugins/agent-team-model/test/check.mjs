@@ -56,6 +56,21 @@ test('model only keeps the Lead provider', () => {
   assert.deepEqual(plan.agentOptions, { model: 'teammate-model' })
 })
 
+test('a model-only spawn does not forward the Lead effort', () => {
+  // Omitting `reasoningEffort` from agentOptions is deliberate: the Host's
+  // resolveChildAgentOptions drops the inherited effort whenever the route
+  // changes, so the new model resolves its own default. Sending the Lead's
+  // effort would silently pin the teammate to a level the new model may not
+  // support. planTeammateModelChange has the mirror-image case; this is the
+  // spawn-time half, which only deepEqual covered implicitly before.
+  const plan = planTeammateRoute(ENABLED(ROUTES), { ...LEAD, reasoningEffort: 'medium' }, { model: 'teammate-model' })
+  assert.equal('reasoningEffort' in plan.agentOptions, false)
+  assert.equal(plan.reasoningEffort, undefined)
+  // ...while an explicit effort is still forwarded verbatim.
+  const withEffort = planTeammateRoute(ENABLED(ROUTES), LEAD, { model: 'teammate-model', reasoning_effort: 'high' })
+  assert.equal(withEffort.agentOptions.reasoningEffort, 'high')
+})
+
 test('provider plus model sends both', () => {
   const plan = planTeammateRoute(ENABLED(ROUTES), LEAD, { provider: 'my-provider', model: 'teammate-model' })
   assert.deepEqual(plan.agentOptions, { provider: 'my-provider', model: 'teammate-model' })
