@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Agent Teams Model",
-    "description": "Let the Team Lead choose each teammate's LLM model, provider and reasoning effort on spawn_teammate, reusing the existing subagent model whitelist."
+    "description": "Let the Team Lead pick each teammate's LLM model, provider and reasoning effort — when spawning the teammate and again while it runs. Reuses the existing subagent model whitelist."
   }
 }

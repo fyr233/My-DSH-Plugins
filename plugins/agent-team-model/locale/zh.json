@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "团队模型路由",
-    "description": "让团队 Lead 在创建成员时逐个指定模型、provider 与推理档位，白名单复用子智能体那一份。"
+    "description": "让团队 Lead 逐个指定成员的模型、provider 与推理档位——创建时指定，运行中也能改。白名单复用子智能体那一份。"
   }
 }
