@@ -310,8 +310,10 @@ set_teammate_model: teammate "<name>" has no Session to change
 
 - **版本耦合**：属于 `experimental` 包的内部接缝，上游改 `startActivation` 或
   `parentAgentOptionsForDelegation` 就需要跟着改。
-- **`fork` 成员换模型**：`fork` 会继承父会话上下文，换到差异很大的模型语义上合理但不保证，
-  由使用者自负。
+- **`fork` 成员的模型**：`fork` 会继承父会话上下文，换到差异很大的模型语义上合理但不保证。
+  路由本身是通的——实测 fork 成员的 `lastUsed` 就是指定模型，且投影 `seq` 高达 5295，说明它确实
+  带着父会话历史（5 千+ 事件）建了子会话。需要注意的是**上下文是从另一个模型产生的**，
+  语义连贯性由使用者判断。
 - **配置寻址**：内置 `tool-agent-team` 被 disable，所以按该 id 调配置打不到本插件的行；
   改配置请针对 `tool-agent-team-model`。
 - **宿主包解析依赖打包布局**：`host.js` 假设 `app.asar/dsh`（以及 unpacked 的 `app/dsh`）下带

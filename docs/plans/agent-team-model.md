@@ -245,6 +245,7 @@ Agent Teams 的团队工具全部消失。
 | --- | --- |
 | 创建时带路由生效 | 真机：两个成员 → `modelSelection.lastUsed` 各自命中 |
 | 不带参数继承 Lead | 真机：`{provider, model: lead-model, reasoningEffort: medium}` |
+| **`context: 'fork'` 也走同一套路由** | 真机：fork 成员投影 `lastUsed = {provider, model: teammate-model}`，且 `seq 5295`（继承了父会话 5 千+ 事件）——证明 `agentOptions` 穿过 fork 分支到达子会话，不是被 fork provider 丢弃 |
 | 运行中改路由生效 | 真机：投影 seq 39 → 60；会话日志 `request/header` 的 `reason` 从 `resume` 变 `change` |
 | 变更有持久提示 | 真机：`user/message`（`kind: model-selection`, `form: notice`）`[model changed: …]` |
 | 下一次请求就换路由（按 step 而非 turn） | 代码：`agent/request` waterfall 载荷带 `step`（`dsh-agent-loop:1191-1195`） |
