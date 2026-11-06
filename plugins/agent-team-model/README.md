@@ -169,6 +169,8 @@ plugin_manager({ action: 'install_bundle', target: '<仓库>/plugins/agent-team-
   → `plugins/agent-team-model`（实测 `os.readlink`，16 个文件全部可见）。
   所以「改了代码不生效」**不是**副本没同步，而是 Node 的**模块缓存**——磁盘上的文件一直是最新的，
   重装/重启只是让进程重新加载它。排查时别再怀疑文件拷贝。
+  推论：改 `locale/*.json`（插件管理器显示的 `meta.title` / `meta.description`）**不必重装**——
+  那是每次打开页面重新读的普通文件，通过链接立刻可见；只有改 **JS 模块**才需要重装或重启。
 - **`engines.dsh` 要覆盖预发布版本**：宿主以 `0.2.1-rc.N` 形式发布，而
   `">=0.2.1 <0.3.0"` 按 semver 不接受任何 `0.2.1-rc.N`（预发布低于对应正式版），安装会被
   `incompatible-version` 拒绝。当前写的是 `">=0.2.1-rc.2 <0.3.0"`；宿主再往前推 rc 号时
