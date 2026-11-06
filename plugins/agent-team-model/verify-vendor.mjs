@@ -102,6 +102,30 @@ if (importLine === null) {
 }
 
 /**
+ * Guard the config the patch inserts.
+ *
+ * `cordis.patch.yml` copies the row's config by hand, because an insert row does
+ * not inherit the config of the row it replaces. If the vendored tool ever gains
+ * a config field that the patch does not set, the row silently falls back to the
+ * schema default — the exact failure the README warns about, and one no runtime
+ * error would reveal.
+ */
+const patchSource = await readFile(join(HERE, 'cordis.patch.yml'), 'utf8')
+const configBlock = vendored.match(/const Config = z\.object\(\{([\s\S]*?)\n\}\);/u)
+const rowBlock = patchSource.slice(patchSource.indexOf('tool-agent-team-model'))
+const rowConfig = rowBlock.slice(rowBlock.indexOf('config:'))
+if (configBlock === null) {
+  failures.push('Config schema not found in the vendored tool')
+} else {
+  const schemaKeys = [...configBlock[1].matchAll(/^\s*(\w+):\s*z\./gmu)].map((m) => m[1])
+  for (const key of schemaKeys) {
+    if (!new RegExp(`^\\s+${key}:`, 'mu').test(rowConfig)) {
+      failures.push(`Config field "${key}" is not set by cordis.patch.yml — the insert row would silently use its default`)
+    }
+  }
+}
+
+/**
  * Guard the two preconditions the AsyncLocalStorage transport depends on.
  *
  * The tag only survives `spawnTeammate → startActivation` because the Agent
