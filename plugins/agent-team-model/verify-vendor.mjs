@@ -126,6 +126,36 @@ if (configBlock === null) {
 }
 
 /**
+ * Guard the cordis behaviour the bridge tests are modelled on.
+ *
+ * `test/support/cordis-traps.mjs` replicates `createTraceable`: every function
+ * read returns a *fresh* shadow-method proxy, which is why the teardown must
+ * query the own descriptor instead of comparing identity. If the Host ships a
+ * cordis whose proxies behave differently, the bridge tests keep passing while
+ * the real runtime diverges — so both the version and the decisive line are
+ * checked, since a version bump is not the only way that code can change.
+ */
+const CORDIS_MODEL_VERSION = '4.0.5'
+const cordisPackage = await readFile(
+  join(HERE, '..', '..', '.scratch', 'vendor-baseline', 'node_modules', '@deepseek-ai', 'cordis', 'package.json'),
+  'utf8',
+).catch(() => undefined)
+
+if (cordisPackage !== undefined) {
+  const { version } = JSON.parse(cordisPackage)
+  if (version !== CORDIS_MODEL_VERSION) {
+    failures.push(`cordis moved to ${version}; test/support/cordis-traps.mjs models ${CORDIS_MODEL_VERSION} — re-verify the proxy traps before trusting the bridge tests`)
+  }
+  const cordisLib = await readFile(
+    join(HERE, '..', '..', '.scratch', 'vendor-baseline', 'node_modules', '@deepseek-ai', 'cordis', 'lib', 'index.js'),
+    'utf8',
+  ).catch(() => undefined)
+  if (cordisLib !== undefined && !cordisLib.includes('if (thisArg === outer) thisArg = shadow;')) {
+    failures.push('cordis createShadowMethod no longer rebinds thisArg to the shadow — cordis-traps.mjs models behaviour that is gone')
+  }
+}
+
+/**
  * Guard the two preconditions the AsyncLocalStorage transport depends on.
  *
  * The tag only survives `spawnTeammate → startActivation` because the Agent
