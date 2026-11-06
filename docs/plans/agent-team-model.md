@@ -263,6 +263,7 @@ Agent Teams 的团队工具全部消失。
 | bridge 行存在但无 Config 导出 | 同上：`absent` 指"无 schema"，不是"未挂载" |
 | 宿主目录名是 `dsh` | 真机 asar 头：顶层 `["dsh","lib","node_modules","package.json","renderer"]` |
 | 补丁形状未漂移 | `verify-vendor`：sha256 `cac22fe5…`，rc.3 与基线逐字节一致 |
+| 重装不会破坏运行态 | 真机：两次 `remove_bundle`+`install_bundle` 后，live 成员仍能响应，且能读到新工具描述里的 `resolved per step` 短语 |
 
 ### 13.3 防线本身是否有效（每条都做过反向注入）
 
