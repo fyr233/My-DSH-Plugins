@@ -1,9 +1,12 @@
 # agent-team-model
 
-让团队 Lead 在创建成员时**逐个指定 LLM 路由**（模型 / provider / reasoning effort）。
+让团队 Lead 在创建成员时**逐个指定 LLM 路由**（模型 / provider / reasoning effort），
+并能在之后**就地改掉已有成员的路由**而不用重建成员、不丢对话。
 
 DeepSeek Harness 的 `spawn_teammate` 原本只有 `name / description / prompt / context`
-四个参数，成员只能继承 Lead 的模型。本插件补上这个能力，并且**不改动 Agent Teams 服务本身**。
+四个参数，成员只能继承 Lead 的模型；宿主也没有给成员换模型的入口
+（会话层的 `selectModel` 对 subagent 来源的会话一律拒绝）。本插件补上这两项能力，
+并且**不改动 Agent Teams 服务本身**。
 
 ## 用法
 
@@ -25,10 +28,14 @@ set_teammate_model({ target: 'reviewer', model: 'other-model' })
 ```
 
 - **下一次请求生效**；正在跑的 turn 用旧路由跑完。
-- 成员处于 `inactive` 时也能改：写进会话的 `model/selection`，下次唤起时生效。
+- **目标成员必须是 live 的**。`inactive` 成员的 Session 没有挂载进内存，调用会报
+  `has no Session to change`——先 `send_message` 唤起再改（实测，见「验证」段）。
+- 成员 inactive 且读不到其投影时，必须同时给 `provider`，否则报
+  `cannot resolve an effective provider and model`（宁可报错也不猜一个 provider）。
 - 与 `spawn_teammate` 共用同一份白名单和 preflight；重复设置同一路由不会多落事件。
-- `list_agents` 显示的模型取自会话的 `modelSelection` 投影（`pending ?? lastUsed`），
-  不会因为成员不 live 就变成 Lead 的模型。
+- `list_agents` 会读会话的 `modelSelection` 投影（`pending ?? lastUsed`）覆盖显示值，
+  但**读不到投影时仍沿用服务层的回退值**（即 Lead 的模型）——这正是 inactive 成员
+  会显示成同一个模型的原因，不是 bug。
 
 三个参数全不传时，行为与未安装本插件**完全一致**。
 
