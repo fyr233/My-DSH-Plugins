@@ -227,6 +227,27 @@ test('bridge dispose is idempotent across a reload', () => {
   assert.equal(host.raw.startActivation, host.proto.startActivation)
 })
 
+test('tearing down a reloaded bridge disposer by disposer restores the prototype', () => {
+  // Real cordis runs each effect's disposer separately, in reverse load order.
+  // `host.dispose()` above fires them all at once, so it never proves that the
+  // inner wrapper refuses to delete an outer wrapper's property.
+  const host = fakeHost()
+  const disposers = []
+  const ctx = { ...host.ctx, effect: (fn) => { disposers.push(fn()) } }
+  applyBridge(ctx)
+  applyBridge(ctx)
+  assert.equal(disposers.length, 2, 'each load registers its own effect')
+
+  disposers[0]()
+  assert.equal(Object.hasOwn(host.raw, 'startActivation'), true,
+    'the first teardown must not remove the wrapper the second load installed')
+  assert.notEqual(host.raw.startActivation, host.proto.startActivation)
+
+  disposers[1]()
+  assert.equal(Object.hasOwn(host.raw, 'startActivation'), false)
+  assert.equal(host.raw.startActivation, host.proto.startActivation)
+})
+
 test('bridge still injects after a reload', async () => {
   const host = fakeHost()
   applyBridge(host.ctx)
