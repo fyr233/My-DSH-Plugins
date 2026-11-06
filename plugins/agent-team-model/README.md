@@ -315,9 +315,12 @@ set_teammate_model: teammate "<name>" has no Session to change
 - **验证本插件会永久消耗团队名额**——这件事容易被忽略，值得先说清楚。
   `agentTeams` 服务**没有任何移除成员的 API**（只有 `disposeRuntime`，它拆的是整个团队），
   而且成员名不可复用（`TEAM_MEMBER_NAME_TAKEN`）。所以每次为了验证而 `spawn_teammate`
-  都会留下一个永久成员，直到进程重启或团队被拆。配额是 `maxMembers`（服务默认
-  `DEFAULT_MAX_MEMBERS = 16`，`agent-team-profile` 层显式配 8；profile 的 patch 未覆盖时以层配置为准），
-  超出后创建会抛 `Team member limit N reached`。
+  都会留下一个永久成员。
+  **重启也不会清掉它们**：成员是写进 Lead 会话日志的 `team/member` 事件，启动时经
+  `parsePersisted`（`agent-team/lib/index.js:549` 附近）重建——持久化在会话里，不在内存里。
+  配额是 `maxMembers`（服务默认 `DEFAULT_MAX_MEMBERS = 16`；`agent-team-profile` 层显式配 8，
+  profile 的 patch 未覆盖时以层配置为准），超出后创建会抛 `Team member limit N reached`。
+  要真正清空只能**换一个新会话**（团队绑定在 Lead 的 Session 上），或者调高 `maxMembers`。
   验证时请复用同一个成员（`set_teammate_model` + `send_message` 就够了），不要为每个用例新建。
 
 ## License
