@@ -254,6 +254,17 @@ set_teammate_model: teammate "<name>" has no Session to change
 - 切成 `teammate-model` 后该成员那一轮失败（该模型当时不可用），反过来证明**下一次请求确实走了新模型**；
 - 返回体就是 `MEMBER_VIEW_SCHEMA` 的成员行、无多余字段——输出 schema 与实现一致。
 
+同一次实验还覆盖了三条分支（均由该成员实际调用取得）：
+
+| 用例 | 实测结果 |
+| --- | --- |
+| `target: "lead"` | `the Team Lead cannot change its own model` |
+| `target: "no-such-member"` | `no teammate named "no-such-member"` |
+| 只给 `reasoning_effort: "high"` | 成功；返回体带 `reasoningEffort: "high"`，投影落到 `{provider, model: lead-model, reasoningEffort: "high"}`（seq 114） |
+
+最后一条同时证明 `reasoningEffort` 确实在 `MEMBER_VIEW_SCHEMA` 里——否则 `additionalProperties: false`
+会让这次调用在输出校验阶段失败。
+
 ## 基线
 
 - 上游版本：`@deepseek-ai/dsh-experimental-tool-agent-team@0.2.1-rc.2`（`rc.3` 的该文件未变，
