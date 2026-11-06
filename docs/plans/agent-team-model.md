@@ -260,6 +260,7 @@ Agent Teams 的团队工具全部消失。
 | 两个工具的「Lead only」声明是否名副其实 | `spawn_teammate` ✅（`spawnAdmitted:1006` 抛 `TEAM_LEAD_REQUIRED`）、`interrupt_agent` ✅（`:965`）、`set_teammate_model` ❌→已改描述（走 `sessionController` 接缝，无闸门，成员实测可调） |
 | 任务板四个工具的输出契约 | 真机全流程：`create`(rev1/pending) → `list` → `get` → `claim`(rev2/in_progress/**有 ownerName**) → `complete`(rev3/completed)。九字段与 `TASK_VIEW_SCHEMA` 完全对应，`additionalProperties: false` 未被触发；`ownerName` 在未认领时不存在，正是它被声明为非必需的原因 |
 | 任务变更需要所有权 | 真机：成员直接 `complete` 一个**无 owner** 的任务被拒 `task mutation requires its owner or Team Lead`。正确顺序是先 `claim` 再 `complete`（宿主 vendored 行为） |
+| `delete` 是软删除 | 真机：删除后返回体 `status: "deleted"` 且保留全部字段（tombstone），revision 递增。按 `pending`/`in_progress`/`completed` 过滤时不再出现 |
 
 ### 13.2 组合与配置
 
