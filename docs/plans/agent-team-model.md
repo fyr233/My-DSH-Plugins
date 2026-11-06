@@ -233,3 +233,58 @@ Agent Teams 的团队工具全部消失。
 > 已知限制：`list_agents` 对 **inactive** 成员读不到投影，会原样沿用服务层的回退值
 > （`root.options.model`），因此多个 inactive 成员会显示成同一个模型。这是有意为之——
 > 宁可不显示，也不用别人的路由冒充（`tool/index.js` 里 `model === undefined ? view : {...view, model}`）。
+
+## 13. 验证矩阵（哪些结论凭什么证据）
+
+46 轮迭代里逐条验证过的东西，汇总在这里，避免后来者重复劳动。
+**"真机"指在本机 rc.3 上实际跑过一次，不只是读代码。**
+
+### 13.1 功能行为
+
+| 结论 | 证据 |
+| --- | --- |
+| 创建时带路由生效 | 真机：两个成员 → `modelSelection.lastUsed` 各自命中 |
+| 不带参数继承 Lead | 真机：`{provider, model: lead-model, reasoningEffort: medium}` |
+| 运行中改路由生效 | 真机：投影 seq 39 → 60；会话日志 `request/header` 的 `reason` 从 `resume` 变 `change` |
+| 变更有持久提示 | 真机：`user/message`（`kind: model-selection`, `form: notice`）`[model changed: …]` |
+| 下一次请求就换路由（按 step 而非 turn） | 代码：`agent/request` waterfall 载荷带 `step`（`dsh-agent-loop:1191-1195`） |
+| 目标为 Lead 被拒 | 真机：`the Team Lead cannot change its own model` |
+| 目标不存在被拒 | 真机：`no teammate named "…"` |
+| 白名单外被拒并列出可用路由 | 真机 |
+| 只给 effort 可成功 | 真机：投影落到 `reasoningEffort: "high"` |
+| inactive 成员不能改 | 真机：`has no Session to change` |
+
+### 13.2 组合与配置
+
+| 结论 | 证据 |
+| --- | --- |
+| 内置 `tool-agent-team` 已被 disable | 真机 `Config.listConfigs`：`include:tool-agent-team` → `inactive` |
+| 本插件的行已激活 | 同上：`include:tool-agent-model` → `schema` |
+| bridge 行存在但无 Config 导出 | 同上：`absent` 指"无 schema"，不是"未挂载" |
+| 宿主目录名是 `dsh` | 真机 asar 头：顶层 `["dsh","lib","node_modules","package.json","renderer"]` |
+| 补丁形状未漂移 | `verify-vendor`：sha256 `cac22fe5…`，rc.3 与基线逐字节一致 |
+
+### 13.3 防线本身是否有效（每条都做过反向注入）
+
+| 防线 | 反向验证方式 |
+| --- | --- |
+| 宿主目录名（`validate.mjs`） | 把 `HARNESS_ROOT` 改成 `WRONG-DIR` → 报错并列出实测顶层 |
+| `REQUIRED` 11 条标记 | 逐条**删除全部出现** → 11/11 报 `missing <label>` |
+| `FORBIDDEN` 5 条标记 | 逐条插入被禁文本 → 5/5 报 `still present <label>` |
+| 路由函数未漏导入 | 移除 `pickSelectedRoute` 的 import → 报 `route helper used but not imported` |
+| config 抄全 | 给 `Config` 加一个字段 → 报该字段未被 patch 设置 |
+| patch 行都在 `exports` 里 | 删掉 `./bridge` → 报该行无对应 export |
+| cordis 代理语义 | 改版本号 / 改 `thisArg === outer` 那一行 → 各自报错 |
+| ALS 前提（`track` 同步） | 往 `track()` 里注入 `await` → 报错 |
+| 检查**不会**静默跳过 | 移走 `vendor-baseline` → 三条 `SKIP` 各自点名未验证的假设 |
+
+### 13.4 仍未验证
+
+| 项 | 为什么没做 |
+| --- | --- |
+| `enabled: false` 分支 | 需要改 profile 的 `subagent-model-selection-settings`，而 profile 在工作区外（实测 `PermissionError`） |
+| 切到 `hy3` 成功路径 | `hy3` 不在白名单，同上 |
+
+> 注入干扰类实验**必须在副本上做**。踩过的坑：就地改 `tool/index.js` 漏恢复，残留 `_XX`
+> 导致后续全部误报；以及「追加后缀」不会破坏 `includes()`、只删 1 次挡不住重复出现的标记。
+> 详见 `docs/experiences/07-debugging-playbook.md` §7.1。
