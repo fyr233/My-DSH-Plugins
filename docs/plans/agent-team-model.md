@@ -288,3 +288,27 @@ Agent Teams 的团队工具全部消失。
 > 注入干扰类实验**必须在副本上做**。踩过的坑：就地改 `tool/index.js` 漏恢复，残留 `_XX`
 > 导致后续全部误报；以及「追加后缀」不会破坏 `includes()`、只删 1 次挡不住重复出现的标记。
 > 详见 `docs/experiences/07-debugging-playbook.md` §7.1。
+
+### 13.5 那两项怎么补完（给有 profile 写权限的人）
+
+Agent 会话的文件策略是 `workspace-write`，工作区是仓库目录；profile 在
+`%USERPROFILE%\.dsh\profiles\desktop\`，**读得到、写被拒**（实测 `PermissionError`）。
+所以这两项必须由人来跑，步骤是确定的：
+
+**A. `enabled: false` 分支**
+
+1. 在 `cordis.patch.yml` 的 `subagent-model-selection-settings` 行把 `enabled: true` 改成 `false`；
+2. 让某个成员（live）调一次 `set_teammate_model`；
+3. 期望：`set_teammate_model: child model selection is disabled in Settings`；
+4. 改回 `true`。
+
+**B. 白名单外 → 白名单内（`hy3`）**
+
+1. 在 `allowedModels` 里加一条 `- provider: <你的 provider>` / `model: hy3`；
+2. 成员调 `set_teammate_model({ target, provider, model: "hy3" })`；
+3. 期望：返回成员行，且投影 `modelSelection.lastUsed.model === "hy3"`；
+4. 若 `hy3` 实际不可用，`llm.resolveCallConfig` preflight 会先失败——
+   那说明是路由问题而不是白名单问题，两者错误文案不同，可据此区分。
+
+> 改完不需要重装插件：白名单是团队侧读的 live 配置（见 §12）。但**改了 `tool/index.js`
+> 就必须 `remove_bundle` → `install_bundle` 或重启**，模块有缓存。
