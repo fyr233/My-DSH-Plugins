@@ -81,8 +81,17 @@ spawn_teammate (本包 tool/)
 
 为什么不在 `spawnTeammate` 上传参：Agent Teams 内部固定只转发 `{ prompt, parent }`
 （`agent-team/lib/index.js:1032-1042`），多余字段会被丢弃，而 `startActivation` 的调用是内部构造的。
-`AsyncLocalStorage` 能安全跨越这条链，因为 `lifecycle.track` 是同步的（`lifecycle.js:52-56`）、
-`journal.transact` 是普通 await。
+
+`AsyncLocalStorage` 能安全跨越这条链，前提有两条，已在 rc.3 源码里逐条核对：
+
+- **`lifecycle.track(operation)` 是同步的**（`agent-team/lib/index.js:210-218`）：
+  `operations.add(operation)` → 挂两个 `.then` → **原样 `return operation`**。
+  没有 `await`，也不新建 async 上下文，所以 store 原封不动地传下去。
+- **`journal.transact` 是普通 `async`**（`:140`），调用处一律 `await this.journal.transact(...)`
+  （`:1021` / `:1130` / `:1169`）。单纯 `await` 不构成新的异步上下文边界。
+
+只要这两条中任何一条变成「在内部新起一个异步任务再返回」，ALS 标记就会丢，整条路由方案随之失效——
+所以它们不是背景信息，而是**本插件成立的条件**。
 
 **为什么只换工具、不换服务**：替换 `agent-team` 服务会在挂载期触发 `disposeRuntime()`
 （`agent-team:1473-1482`），把**所有运行中的团队拆掉**；只换工具层不会。这也是本插件能在

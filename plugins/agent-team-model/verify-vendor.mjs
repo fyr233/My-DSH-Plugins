@@ -101,6 +101,34 @@ if (importLine === null) {
   }
 }
 
+/**
+ * Guard the two preconditions the AsyncLocalStorage transport depends on.
+ *
+ * The tag only survives `spawnTeammate → startActivation` because the Agent
+ * Teams runtime neither awaits inside `lifecycle.track` nor starts detached
+ * async work there. If a host upgrade changes that, the route would silently
+ * stop arriving at the child, so this is checked against the installed build.
+ */
+const lifecycleSource = await readFile(
+  join(HERE, '..', '..', '.scratch', 'vendor-baseline', '@deepseek-ai', 'dsh-experimental-agent-team', 'lib', 'index.js'),
+  'utf8',
+).catch(() => undefined)
+
+if (lifecycleSource !== undefined) {
+  const trackBody = lifecycleSource.match(/track\(operation\)\s*\{([\s\S]{0,400}?)\n\t\}/u)
+  if (trackBody === null) {
+    failures.push('lifecycle.track() not found in the baseline — the AsyncLocalStorage premise needs re-checking')
+  } else {
+    const body = trackBody[1]
+    if (/\bawait\b/u.test(body)) {
+      failures.push('lifecycle.track() now awaits — the ALS tag may not survive into startActivation')
+    }
+    if (!/return operation;?/u.test(body)) {
+      failures.push('lifecycle.track() no longer returns the same operation — re-check the ALS premise')
+    }
+  }
+}
+
 let baseline
 try {
   baseline = await readFile(baselinePath, 'utf8')
