@@ -37,6 +37,15 @@ plugins/<目录>/
 }
 ```
 
+**怎么验证 `files` 没漏**：别写静态分析去比对 import 字符串——`verify-vendor.mjs` 这类脚本把 import 形态当**字符串常量**存着，
+静态扫描会把它们误判成真实 import（实测踩过）。可靠做法是**模拟打包再跑**：只按 `files` 拷进临时目录，
+带一份 `package.json`，然后在那里执行 `node test/check.mjs`、`node verify-vendor.mjs`。
+两个都 exit 0，说明随包脚本的自检链路是完整的。
+
+> 顺带记一条边界：`host.js` / `tool/index.js` 在运行时**不读任何随包文件**（只解析宿主包路径），
+> 所以"代码读的文件是否被打包"这一层，只有自检脚本涉及，而它们已被上面的方法覆盖。
+```
+
 ```yaml
 - insert:
     - id: example                    # 与目录名一致，用户按 id 覆盖配置
