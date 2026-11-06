@@ -256,6 +256,8 @@ Agent Teams 的团队工具全部消失。
 | 白名单外被拒并列出可用路由 | 真机 |
 | 只给 effort 可成功 | 真机：投影落到 `reasoningEffort: "high"` |
 | inactive 成员不能改 | 真机：`has no Session to change` |
+| `interrupt_agent` 对 inactive 目标 | 真机（由成员代办）：被服务层拒绝 `only the Team Lead can interrupt teammates`——与 `set_teammate_model` 不同，**它真有 Lead 闸门**（`agent-team:965`）。宿主对 live 目标的语义是直接返回 `{previousStatus:"inactive"}`（`:970`），不发中断 |
+| 两个工具的「Lead only」声明是否名副其实 | `spawn_teammate` ✅（`spawnAdmitted:1006` 抛 `TEAM_LEAD_REQUIRED`）、`interrupt_agent` ✅（`:965`）、`set_teammate_model` ❌→已改描述（走 `sessionController` 接缝，无闸门，成员实测可调） |
 
 ### 13.2 组合与配置
 
