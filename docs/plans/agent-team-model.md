@@ -248,6 +248,8 @@ Agent Teams 的团队工具全部消失。
 | **`context: 'fork'` 也走同一套路由** | 真机：fork 成员投影 `lastUsed = {provider, model: teammate-model}`，且 `seq 5295`（继承了父会话 5 千+ 事件）——证明 `agentOptions` 穿过 fork 分支到达子会话，不是被 fork provider 丢弃 |
 | 运行中改路由生效 | 真机：投影 seq 39 → 60；会话日志 `request/header` 的 `reason` 从 `resume` 变 `change` |
 | 变更有持久提示 | 真机：`user/message`（`kind: model-selection`, `form: notice`）`[model changed: …]` |
+| effort-only 变更**不**产生提示 | 真机：`model/selection` 写入 `reasoningEffort: "high"`（seq 107）→ 下一 header `effort=high`，全程无 notice。与宿主注释一致 |
+| 提示只在**路由变化**时出现，且时机取决于变更落在哪 | 真机：turn 边界改（seq 50）→ 下一轮出 notice（seq 55）；turn **中途**改（seq 72，位于 tool/call 与 tool/result 之间）→ header 已换成新路由（seq 76 `reason=change`）**但没有 notice**。原因是宿主 `agent/pre-step` 比 `system-prompt/assemble` 早，那一 step 的 `assembled` 还是旧路由，`sameRoute` 判定"未变"。属宿主既有行为，不是本插件缺陷 |
 | 下一次请求就换路由（按 step 而非 turn） | 代码：`agent/request` waterfall 载荷带 `step`（`dsh-agent-loop:1191-1195`） |
 | 目标为 Lead 被拒 | 真机：`the Team Lead cannot change its own model` |
 | 目标不存在被拒 | 真机：`no teammate named "…"` |

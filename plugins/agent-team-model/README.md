@@ -228,6 +228,9 @@ node plugins/agent-team-model/verify-vendor.mjs   # vendor 漂移检查（基线
 
 > 换模型会在该成员会话里插入一条持久的 `[model changed: …]` 提示（宿主 `installModelSelection`
 > 的行为），这是预期结果，不要把它当成噪音删掉。
+> **两个例外**（实测）：① 只改 `reasoning_effort` 不产生提示；② 在 turn **中途**改（例如成员正在
+> 执行工具调用时）也不产生提示——那一 step 的 prompt 已装配完，宿主比不出"路由变了"。
+> 两种情况下路由**都已实际切换**（下一 header `reason=change` 可见），只是没有那条提示。
 
 **已知限制：目标成员必须是 live 的。** 实测（2026-11-06，由成员 `route-admin` 经工具调用验证）：
 对一个 inactive 成员调用会报
