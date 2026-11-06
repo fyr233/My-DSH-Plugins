@@ -156,6 +156,10 @@ plugin_manager({ action: 'install_bundle', target: '<仓库>/plugins/agent-team-
   所以看到多个成员同一个模型时，先确认它们是不是都 inactive。
   实测（2026-11-06）：`remove_bundle` → `install_bundle` **确实**会加载新模块——同一批次新增的
   `set_teammate_model` 在重装后立即出现在 `Tool.listTools` 里，可作判据。
+- **profile 里是指向仓库目录的符号链接**：`node_modules/@local/dsh-plugin-agent-team-model`
+  → `plugins/agent-team-model`（实测 `os.readlink`，16 个文件全部可见）。
+  所以「改了代码不生效」**不是**副本没同步，而是 Node 的**模块缓存**——磁盘上的文件一直是最新的，
+  重装/重启只是让进程重新加载它。排查时别再怀疑文件拷贝。
 - **`engines.dsh` 要覆盖预发布版本**：宿主以 `0.2.1-rc.N` 形式发布，而
   `">=0.2.1 <0.3.0"` 按 semver 不接受任何 `0.2.1-rc.N`（预发布低于对应正式版），安装会被
   `incompatible-version` 拒绝。当前写的是 `">=0.2.1-rc.2 <0.3.0"`；宿主再往前推 rc 号时
