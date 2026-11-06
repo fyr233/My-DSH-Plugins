@@ -364,7 +364,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 		})));
 		register(scoped.tools.register(defineTool({
 			name: "set_teammate_model",
-			description: "Change one existing teammate's LLM route. Team Lead only. The change applies from the teammate's next request; routing is resolved per step, so a multi-step turn switches at its next step, while a request already awaiting a reply finishes on the old route.",
+			description: "Change one existing teammate's LLM route. Applies to a teammate, never the Lead. The change takes effect from the target's next request; routing is resolved per step, so a multi-step turn switches at its next step, while a request already awaiting a reply finishes on the old route.",
 			parameters: {
 				target: {
 					type: "string",

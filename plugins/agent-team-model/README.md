@@ -21,7 +21,7 @@ spawn_teammate({
 })
 ```
 
-创建之后也能改（Lead-only）：
+创建之后也能改（目标是成员，不能是 Lead 自己）：
 
 ```js
 set_teammate_model({ target: 'reviewer', model: 'other-model' })
@@ -36,6 +36,10 @@ set_teammate_model({ target: 'reviewer', model: 'other-model' })
 - 成员 inactive 且读不到其投影时，必须同时给 `provider`，否则报
   `cannot resolve an effective provider and model`（宁可报错也不猜一个 provider）。
 - 与 `spawn_teammate` 共用同一份白名单和 preflight；重复设置同一路由不会多落事件。
+- **工具层不校验调用者角色，只校验目标是成员**。与 `spawn_teammate` 不同——后者由服务层
+  `spawnAdmitted` 强制 Lead（`only the Team Lead can create teammates` / `TEAM_LEAD_REQUIRED`），
+  而 `set_teammate_model` 换的是 `sessionController.agents` 这条接缝，服务层没有角色闸门。
+  实测：成员 `route-admin` 调用成功。这是有意的（便于成员自助调整），但意味着**别把它当权限边界**。
 - `list_agents` 会读会话的 `modelSelection` 投影（`pending ?? lastUsed`）覆盖显示值，
   但**读不到投影时仍沿用服务层的回退值**（即 Lead 的模型）——这正是 inactive 成员
   会显示成同一个模型的原因，不是 bug。
