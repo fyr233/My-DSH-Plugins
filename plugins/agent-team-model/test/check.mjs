@@ -133,6 +133,35 @@ test('untagged spawn runs without a store', () => {
   assert.equal(seen, undefined)
 })
 
+test('interleaved async spawns never see each other tag', async () => {
+  // The real spawn chain awaits between tagging and startActivation, so two
+  // spawns can interleave. Each must keep its own route; a shared store would
+  // hand one member the other member's model with no error anywhere.
+  const trace = []
+  const hop = () => new Promise((resolve) => setTimeout(resolve, 1))
+
+  const spawn = (label, options) => withTeammateAgentOptions(options, async () => {
+    trace.push([label, 'before-1', currentTeammateAgentOptions()?.model])
+    await hop()
+    trace.push([label, 'after-1', currentTeammateAgentOptions()?.model])
+    await hop()
+    trace.push([label, 'after-2', currentTeammateAgentOptions()?.model])
+  })
+
+  await Promise.all([
+    spawn('a', { model: 'model-a' }),
+    spawn('b', { model: 'model-b' }),
+    spawn('c', undefined),
+  ])
+
+  for (const [label, phase, seen] of trace) {
+    const expected = label === 'a' ? 'model-a' : label === 'b' ? 'model-b' : undefined
+    assert.equal(seen, expected, `${label}/${phase} saw ${String(seen)}`)
+  }
+  // The tag must not leak into the caller's context after all spawns settle.
+  assert.equal(currentTeammateAgentOptions(), undefined)
+})
+
 // --- bridge ---------------------------------------------------------------
 
 /** Build a fake host context whose activation seam behaves like a cordis Service behind a traceable proxy. */
