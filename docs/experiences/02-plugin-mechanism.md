@@ -44,6 +44,14 @@ plugins/<目录>/
       config: {}
 ```
 
+**`exports` 要覆盖 patch 里用到的每个子路径**：一旦 `package.json` 声明了 `exports`，它就是
+封闭白名单——loader 按 `name` 里的子路径解析（如 `@local/xxx/tool` → `./tool`），
+漏写就加载不到。实测（`agent-team-model`）：patch 里的
+`@local/dsh-plugin-agent-team-model/tool` 与 `/bridge` 分别对应 `"./tool"`、`"./bridge"`，
+两者都在 `exports` 里，插件才能挂上。
+反过来，`files` 里的 `README.md`、`LICENSE`、`test/*`、`verify-vendor.mjs` **不需要** `exports`——
+它们是给人或脚本直接按路径使用的文件，不走模块解析。
+
 ## 2. 入口的三种导出
 
 ```js

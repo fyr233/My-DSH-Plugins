@@ -126,6 +126,26 @@ if (configBlock === null) {
 }
 
 /**
+ * Guard that every row the patch inserts is reachable through `exports`.
+ *
+ * A package with an `exports` map is closed: the loader resolves the row's
+ * `name` as `<package>/<subpath>`, which must appear as a `./<subpath>` key.
+ * Adding a row without the matching export loads nothing, and the diagnostic
+ * only shows up as a failed activation at install time.
+ */
+const manifest = JSON.parse(await readFile(join(HERE, 'package.json'), 'utf8'))
+const packageName = manifest.name
+for (const match of patchSource.matchAll(/name:\s*'((?:[^'\\]|\\.)*)'/gu)) {
+  const specifier = match[1]
+  if (!specifier.startsWith(packageName)) continue
+  const subpath = specifier.slice(packageName.length)
+  const key = subpath === '' ? '.' : `.${subpath}`
+  if (!(key in (manifest.exports ?? {}))) {
+    failures.push(`cordis.patch.yml inserts "${specifier}" but package.json exports has no "${key}"`)
+  }
+}
+
+/**
  * Guard the cordis behaviour the bridge tests are modelled on.
  *
  * `test/support/cordis-traps.mjs` replicates `createTraceable`: every function
