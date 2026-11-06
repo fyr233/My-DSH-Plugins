@@ -298,7 +298,11 @@ set_teammate_model: teammate "<name>" has no Session to change
   > 这两个数字随补丁增长而变，**不要当成断言**——`verify-vendor.mjs` 只校验"vendored 不比 baseline 短"
   > 以及必需/禁止标记，不校验具体行数。要准确值请现跑 `--report`。
 - 想看具体增删了哪些行：`node plugins/agent-team-model/verify-vendor.mjs --report`
-- 没有基线副本时（如 CI）会打印 `SKIP upstream comparison` 并以 0 退出，仍校验补丁形状——实测确认
+- 没有基线副本时（如 CI）会打印 `SKIP …` 并以 0 退出，仍校验补丁形状——实测确认。
+  注意**三条**检查各自会 SKIP，别只盯着一条：`upstream comparison`（sha256）、
+  `cordis proxy check`（bridge 测试所建模的代理语义）、`ALS premise check`
+  （`lifecycle.track` 是否仍同步）。后两条都依赖 `.scratch/vendor-baseline` 这个本地构建产物，
+  在全新 clone 上不会执行——所以看到 `ok` 时也值得扫一眼有没有 SKIP 行。
 
 宿主升级后 `verify-vendor.mjs` 会报基线漂移，按同一形状重新 rebase。
 

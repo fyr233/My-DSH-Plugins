@@ -161,7 +161,11 @@ const cordisPackage = await readFile(
   'utf8',
 ).catch(() => undefined)
 
-if (cordisPackage !== undefined) {
+if (cordisPackage === undefined) {
+  // Silence here would read as a pass. `.scratch/vendor-baseline` is a local
+  // build artifact, so on a fresh clone this whole check simply cannot run.
+  console.log('SKIP cordis proxy check: no .scratch/vendor-baseline copy (bridge tests then rest on an unverified assumption)')
+} else {
   const { version } = JSON.parse(cordisPackage)
   if (version !== CORDIS_MODEL_VERSION) {
     failures.push(`cordis moved to ${version}; test/support/cordis-traps.mjs models ${CORDIS_MODEL_VERSION} — re-verify the proxy traps before trusting the bridge tests`)
@@ -188,7 +192,9 @@ const lifecycleSource = await readFile(
   'utf8',
 ).catch(() => undefined)
 
-if (lifecycleSource !== undefined) {
+if (lifecycleSource === undefined) {
+  console.log('SKIP ALS premise check: no .scratch/vendor-baseline copy (the route transport then rests on an unverified assumption)')
+} else {
   const trackBody = lifecycleSource.match(/track\(operation\)\s*\{([\s\S]{0,400}?)\n\t\}/u)
   if (trackBody === null) {
     failures.push('lifecycle.track() not found in the baseline — the AsyncLocalStorage premise needs re-checking')
