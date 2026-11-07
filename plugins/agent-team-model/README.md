@@ -8,6 +8,27 @@ DeepSeek Harness 的 `spawn_teammate` 原本只有 `name / description / prompt 
 （会话层的 `selectModel` 对 subagent 来源的会话一律拒绝）。本插件补上这两项能力，
 并且**不改动 Agent Teams 服务本身**。
 
+## 操作要点（给调用方 / 其它智能体）
+
+按「最容易踩错」排序。这些规则在下面各节都有出处，这里只做汇总。
+
+1. **改模型前先确认目标成员存在**：`list_agents` 的 `target` 就是参数 `target` 的取值。
+   名字写错会报 `no teammate named "…"`。
+2. **`list_agents` 的 `model` 字段不是判定依据**（除非你看到的是刚改过的成员）。服务层对
+   **非 live** 成员回退成 Lead 的模型，所以多个 inactive 成员会显示同一个模型。要确认某个成员
+   的真实路由，读它的会话投影 `modelSelection.lastUsed`。
+3. **改完立刻能在 `list_agents` 看到新值**：即使成员停着，插件也会显示待应用路由。
+   看不到才说明没改成功。
+4. **停着的成员也能改**，不需要先唤醒。但「待应用」只存在内存里——**改完到它下次被唤起之间
+   如果重启应用，这次改动会丢**，需要重做。
+5. **必须给 `provider` 的两种情形**：成员停着且读不到投影时（没有可信的当前路由可继承）；
+   或者你要换到另一个 provider。否则报 `cannot resolve an effective provider and model`。
+6. **白名单是硬约束**：受 profile 的 `subagent-model-selection-settings` 限制，越界会列出
+   全部可用路由。**改白名单不需要重装插件**（团队侧读 live 配置）。
+7. **不要指望「正在跑的那一轮立刻换」**：路由按 **step** 解析，一个多 step 的 turn 会在下一个
+   step 换；已经在等模型回复的那一次请求无法回头。
+8. **没有「删除成员」**：宿主不提供，成员名也不可复用。别为了腾位置反复建成员。
+
 ## 用法
 
 ```js
