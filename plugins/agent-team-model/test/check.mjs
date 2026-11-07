@@ -488,6 +488,28 @@ test('a failing install degrades instead of breaking member creation', () => {
   )
 })
 
+test('teardown swallows disposer failures and still forgets the agent', () => {
+  // The undo functions are Host-provided effect disposers and may throw. Escaping
+  // from the agent/disposed listener would reach the Host's disposal path, and
+  // skipping the delete would leave a stale entry to be disposed again.
+  const source = readFileSync(new URL('../tool/index.js', import.meta.url), 'utf8')
+  assert.match(
+    source,
+    /try \{\s*installed\.get\(agent\)\?\.\(\);\s*\} catch/,
+    'the agent/disposed listener must guard its disposer call',
+  )
+  assert.match(
+    source,
+    /finally \{\s*installed\.delete\(agent\);\s*\}/,
+    'and must delete the entry even when the disposer throws',
+  )
+  assert.match(
+    source,
+    /could not release the Team tools for/,
+    'teardown failures are reported as warnings',
+  )
+})
+
 // --- output contract ------------------------------------------------------
 
 test('the member row schema declares every field the tools emit', () => {

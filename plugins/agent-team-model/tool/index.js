@@ -751,11 +751,25 @@ function apply(ctx, config = {}) {
 		maybeInstall(agent);
 	});
 	ctx.on("agent/disposed", ({ agent }) => {
-		installed.get(agent)?.();
-		installed.delete(agent);
+		// An undo can throw (it is a Host-provided disposer). Letting that escape
+		// would both reach the Host's disposal path and skip the bookkeeping below,
+		// leaving the entry behind to be disposed again later.
+		try {
+			installed.get(agent)?.();
+		} catch (error) {
+			ctx.logger?.warn?.(`agent-team-model: could not release the Team tools for "${agent.id}": ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			installed.delete(agent);
+		}
 	});
 	ctx.effect(() => () => {
-		for (const dispose of installed.values()) dispose();
+		for (const agent of [...installed.keys()]) {
+			try {
+				installed.get(agent)?.();
+			} catch (error) {
+				ctx.logger?.warn?.(`agent-team-model: could not release the Team tools for "${agent.id}": ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
 		installed.clear();
 	}, "tool-team.scopedTools()");
 }
