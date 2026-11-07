@@ -718,8 +718,16 @@ function apply(ctx, config = {}) {
 		installed.set(agent, install(agent, ctx, resolved, seam));
 		// A route recorded while this member was stopped takes effect now: the
 		// Session exists again, so the seam can write model/selection into it.
+		// This runs inside the agent/created listener, so a failure here must not
+		// propagate — a missing seam would otherwise break the member's creation
+		// instead of only losing the deferred route.
 		const deferred = seam.take(agent.id);
-		if (deferred !== void 0) seam.apply(agent, deferred);
+		if (deferred === void 0) return;
+		try {
+			seam.apply(agent, deferred);
+		} catch (error) {
+			ctx.logger?.warn?.(`agent-team-model: could not apply the recorded route to "${agent.id}": ${error instanceof Error ? error.message : String(error)}`);
+		}
 	};
 	// One plugin-scoped policy section. Registering it per agent would tie the
 	// effect to that agent's ctx (see systemPrompt.section), so it would survive a

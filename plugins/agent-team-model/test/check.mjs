@@ -460,7 +460,13 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
   )
   assert.match(source, /if \(live === void 0\) seam\.defer\(/, 'the non-live branch records the route')
   assert.match(source, /const deferred = seam\.take\(agent\.id\)/, 'a recreated agent takes its deferred route')
-  assert.match(source, /if \(deferred !== void 0\) seam\.apply\(agent, deferred\)/, 'and applies it immediately')
+  assert.match(source, /seam\.apply\(agent, deferred\)/, 'and applies it when the agent is created')
+  // That call runs inside the agent/created listener, so it must not throw.
+  assert.match(
+    source,
+    /try \{\s*seam\.apply\(agent, deferred\);\s*\} catch/,
+    'a failing apply must be swallowed, not break member creation',
+  )
 })
 
 // --- output contract ------------------------------------------------------
