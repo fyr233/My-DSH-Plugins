@@ -252,6 +252,18 @@ set_teammate_model: teammate "<name>" has no Session to change
 > 剩余代价：待应用路由只在内存里，重启应用会丢（该成员还没被唤起的情况下）。
 > 工具对成员可见这点不变（成员侧 `tools-available: yes`）。
 
+**为什么不做持久化（已评估，暂不实施）**：宿主确实提供了 `storageDomain.open(spec)` → KV 表，
+技术上可用（宿主自带 `zod`，`DomainTableSpec.valueSchema` 需要 `ZodType`）。但代价不成比例：
+
+- 要为插件新增第 5 个宿主包依赖（`zod`）和第 2 个服务依赖（`storageDomain`）；
+- `open()` 是异步且会失败（`already-open` / `backend-not-found` / `invalid-record`），
+  而它必须发生在**插件激活期**——那正是本插件已经出过一次事故的阶段（`team:policy` 冲突
+  导致整个 patch 层回滚）。为了一个罕见场景（改完路由、成员还没醒、恰好重启）在激活期
+  增加新的失败点，风险明显大于收益。
+- 丢了也只是「要再改一次」，不会留下错误状态。
+
+如果将来确实需要，正确的落点是**等成员下次被唤起时写事件**（已实现），持久化只是省一次重设。
+
 真机验证（2026-11-07，`route-check-luna`）：
 
 | 时刻 | 投影 `modelSelection` |

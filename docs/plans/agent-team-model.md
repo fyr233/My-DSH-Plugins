@@ -287,12 +287,14 @@ Agent Teams 的团队工具全部消失。
 | ALS 前提（`track` 同步） | 往 `track()` 里注入 `await` → 报错 |
 | 检查**不会**静默跳过 | 移走 `vendor-baseline` → 三条 `SKIP` 各自点名未验证的假设 |
 
-### 13.4 仍未验证
+### 13.4 仍未验证 / 已决策不做
 
-| 项 | 为什么没做 |
+| 项 | 状态 |
 | --- | --- |
-| `enabled: false` 分支 | 需要改 profile 的 `subagent-model-selection-settings`，而 profile 在工作区外（实测 `PermissionError`） |
-| 切到 `hy3` 成功路径 | `hy3` 不在白名单，同上 |
+| `enabled: false` 分支 | **仍未验证**：需要改 profile 的 `subagent-model-selection-settings`，profile 在工作区外（实测 `PermissionError`）。单元测试已覆盖该分支的判定逻辑 |
+| 白名单内新模型切换 | ✅ 已验证（`hy3` 加入白名单后实测成功，投影 `lastUsed` 命中） |
+| 停着的成员改模型 | ✅ 已验证（详见 13.1） |
+| **待应用路由的持久化** | **决策不做**：宿主有 `storageDomain` + 自带 `zod`，技术上可行；但需新增 2 个依赖，且 `open()` 必须在**插件激活期**异步执行并可能失败——本插件已因激活期失败（`team:policy` 冲突）出过一次事故，为一个罕见场景增加激活期失败点不划算。丢失的后果只是「再改一次」，不会留下错误状态 |
 
 > 注入干扰类实验**必须在副本上做**。踩过的坑：就地改 `tool/index.js` 漏恢复，残留 `_XX`
 > 导致后续全部误报；以及「追加后缀」不会破坏 `includes()`、只删 1 次挡不住重复出现的标记。
