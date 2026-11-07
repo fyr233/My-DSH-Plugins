@@ -273,6 +273,17 @@ set_teammate_model: teammate "<name>" has no Session to change
 
 `pending: null` 且 `lastUsed` 已变 => 醒来那次请求**就是**用的新模型，没有任何一轮跑在旧路由上。
 
+同一批测试还确认了**花名册立刻可见**（否则用户会以为没改成功）：
+
+| 成员 | 状态 | `list_agents` 的 `model` |
+| --- | --- | --- |
+| `route-check-astra`（刚改、还没醒） | `inactive` | **新模型** ← 来自待应用路由 |
+| `route-check-luna`（上一轮已醒） | `inactive` | 服务层回退值（因为它已经变成真实投影） |
+| 其余 5 个成员 | `inactive` | 服务层回退值 |
+
+两者同为 `inactive`、唯一差别是「有没有待应用路由」，所以这个对比直接证明了
+`list_agents` 里 `seam.peek(member.id)?.model` 这条覆盖确实生效。
+
 ### 会话日志里的完整证据链（2026-11-06，rc.3）
 
 日志：`~/.dsh/sessions/<cwd-tag>/<sessionId>/session.v4.jsonl.zstd`（多帧 zstd，逐帧解压）。
