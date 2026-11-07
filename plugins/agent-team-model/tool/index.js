@@ -715,12 +715,21 @@ function apply(ctx, config = {}) {
 	const installed = /* @__PURE__ */ new Map();
 	const maybeInstall = (agent) => {
 		if (installed.has(agent) || ctx.agentTeams.tryMembership(agent) === void 0) return;
-		installed.set(agent, install(agent, ctx, resolved, seam));
+		// Runs inside the agent/created listener. `install()` throws when one of its
+		// registrations fails — a duplicate tool name, for instance, which is exactly
+		// what happens when the built-in tool-agent-team is also active. Letting that
+		// escape would break the member's creation; the member is better off with
+		// this plugin's tools missing and a warning in the log.
+		let dispose
+		try {
+			dispose = install(agent, ctx, resolved, seam)
+		} catch (error) {
+			ctx.logger?.warn?.(`agent-team-model: could not install the Team tools for "${agent.id}": ${error instanceof Error ? error.message : String(error)}`);
+			return
+		}
+		installed.set(agent, dispose);
 		// A route recorded while this member was stopped takes effect now: the
 		// Session exists again, so the seam can write model/selection into it.
-		// This runs inside the agent/created listener, so a failure here must not
-		// propagate — a missing seam would otherwise break the member's creation
-		// instead of only losing the deferred route.
 		const deferred = seam.take(agent.id);
 		if (deferred === void 0) return;
 		try {

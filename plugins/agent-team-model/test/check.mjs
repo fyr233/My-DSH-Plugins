@@ -469,6 +469,25 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
   )
 })
 
+test('a failing install degrades instead of breaking member creation', () => {
+  // install() throws when a registration fails - a duplicate tool name does it,
+  // which is what happens if the built-in tool-agent-team is somehow active
+  // alongside this plugin. maybeInstall runs inside the agent/created listener, so
+  // an escaping throw would fail the member's creation; the member should instead
+  // be created without this plugin's tools, plus a warning.
+  const source = readFileSync(new URL('../tool/index.js', import.meta.url), 'utf8')
+  assert.match(
+    source,
+    /try \{\s*dispose = install\(agent, ctx, resolved, seam\)\s*\} catch/,
+    'install() must be wrapped so a registration failure cannot escape the listener',
+  )
+  assert.match(
+    source,
+    /could not install the Team tools for/,
+    'and the failure must be reported through a warning',
+  )
+})
+
 // --- output contract ------------------------------------------------------
 
 test('the member row schema declares every field the tools emit', () => {
