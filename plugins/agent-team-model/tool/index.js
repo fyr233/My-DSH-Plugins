@@ -256,9 +256,11 @@ function leadRoute(agent) {
 * Fail before creating the member when the route cannot be called at all.
 * Without this a bad model id leaves an `active` teammate that never produces
 * output, because the failure surfaces only on the child's first request.
+*
+* `planTeammateRoute` already refuses to return without an effective provider and
+* model, so this function only has to prove the route is callable.
 */
 async function assertRoutable(ctx, plan, signal) {
-	if (plan.provider === void 0 || plan.model === void 0) throw new Error("spawn_teammate: cannot resolve an effective provider and model for the route preflight");
 	const llm = ctx.get("llm");
 	if (llm === void 0) {
 		/* v8 ignore next -- the Host always composes the LLM runtime. */
@@ -288,6 +290,10 @@ function install(agent, ctx, config) {
 	const disposers = [];
 	const register = (disposer) => {
 		disposers.push(disposer);
+	};
+	/** Undo every registration made so far. Safe to call more than once. */
+	const dispose = () => {
+		for (const undo of disposers.splice(0).reverse()) undo();
 	};
 	try {
 		// The team:policy section is registered once in plugin scope by apply(),
@@ -669,12 +675,12 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 			}
 		})));
 	} catch (error) {
-		for (const dispose of disposers.reverse()) dispose();
+		dispose();
 		throw error;
 	}
-	return () => {
-		for (const dispose of disposers.reverse()) dispose();
-	};
+	// Draining through splice() makes a second call a no-op, which matters when a
+	// failed install is followed by a teardown of the same scope.
+	return dispose;
 }
 /** Install Team tools in every live or subsequently published Team member scope. */
 function apply(ctx, config = {}) {
