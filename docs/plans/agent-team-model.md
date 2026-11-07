@@ -255,7 +255,7 @@ Agent Teams 的团队工具全部消失。
 | 目标不存在被拒 | 真机：`no teammate named "…"` |
 | 白名单外被拒并列出可用路由 | 真机 |
 | 只给 effort 可成功 | 真机：投影落到 `reasoningEffort: "high"` |
-| inactive 成员改模型 | 旧实现真机报 `has no Session to change`（当时记为"已知限制"）；**该限制已按设计缺陷修掉**：路由先记在插件内，`agent/created` 时落下，成员醒来首个请求即走新路由。修法尚无真机证据，只有代码 + 静态测试 |
+| inactive 成员改模型 | 旧实现真机报 `has no Session to change`（当时记为"已知限制"）；**该限制已按设计缺陷修掉并在真机验证**：对 `inactive` 的 `route-check-luna` 改模型成功（旧版会报错），返回 `model: hy3`，当时投影仍是旧值 `gpt-6-luna`/`pending: null`（待应用路由只在插件内）；唤醒该成员后投影变为 `lastUsed: hy3`、`seq 19 → 36`——**醒来首个请求即用新路由**，没有任何一轮跑在旧模型上 |
 | `interrupt_agent` 对 inactive 目标 | 真机（由成员代办）：被服务层拒绝 `only the Team Lead can interrupt teammates`——与 `set_teammate_model` 不同，**它真有 Lead 闸门**（`agent-team:965`）。宿主对 live 目标的语义是直接返回 `{previousStatus:"inactive"}`（`:970`），不发中断 |
 | 两个工具的「Lead only」声明是否名副其实 | `spawn_teammate` ✅（`spawnAdmitted:1006` 抛 `TEAM_LEAD_REQUIRED`）、`interrupt_agent` ✅（`:965`）、`set_teammate_model` ❌→已改描述（走 `sessionController` 接缝，无闸门，成员实测可调） |
 | 任务板四个工具的输出契约 | 真机全流程：`create`(rev1/pending) → `list` → `get` → `claim`(rev2/in_progress/**有 ownerName**) → `complete`(rev3/completed)。九字段与 `TASK_VIEW_SCHEMA` 完全对应，`additionalProperties: false` 未被触发；`ownerName` 在未认领时不存在，正是它被声明为非必需的原因 |

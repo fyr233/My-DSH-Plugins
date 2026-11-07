@@ -252,6 +252,15 @@ set_teammate_model: teammate "<name>" has no Session to change
 > 剩余代价：待应用路由只在内存里，重启应用会丢（该成员还没被唤起的情况下）。
 > 工具对成员可见这点不变（成员侧 `tools-available: yes`）。
 
+真机验证（2026-11-07，`route-check-luna`）：
+
+| 时刻 | 投影 `modelSelection` |
+| --- | --- |
+| 对它（`inactive`）调 `set_teammate_model → new-model` | 返回成功；投影仍是 `{model: teammate-model}`、`pending: null`（顺序正确：待应用路由还没落，只在插件里） |
+| `send_message` 唤醒后 | `{model: new-model}`、`pending: null`、`seq 19 → 36` |
+
+`pending: null` 且 `lastUsed` 已变 => 醒来那次请求**就是**用的新模型，没有任何一轮跑在旧路由上。
+
 ### 会话日志里的完整证据链（2026-11-06，rc.3）
 
 日志：`~/.dsh/sessions/<cwd-tag>/<sessionId>/session.v4.jsonl.zstd`（多帧 zstd，逐帧解压）。
