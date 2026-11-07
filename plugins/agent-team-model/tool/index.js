@@ -290,11 +290,11 @@ function install(agent, ctx, config) {
 		disposers.push(disposer);
 	};
 	try {
-		register(scoped.systemPrompt.section({
-			name: "team:policy",
-			order: scoped.systemPrompt.getSectionOrder("TEAM_POLICY"),
-			text: teamPolicy(config.interrupt)
-		}));
+		// The team:policy section is registered once in plugin scope by apply(),
+		// not here. systemPrompt.section() ties its effect to the *calling* ctx, so
+		// registering it on agent.ctx would outlive the plugin and collide the next
+		// time the plugin loads ("already registered in this scope"). Its text only
+		// depends on config.interrupt, so one plugin-scoped registration is enough.
 		register(scoped.systemPrompt.context({
 			name: "team:identity",
 			order: scoped.systemPrompt.getContextOrder("TEAM_IDENTITY"),
@@ -688,6 +688,14 @@ function apply(ctx, config = {}) {
 		if (installed.has(agent) || ctx.agentTeams.tryMembership(agent) === void 0) return;
 		installed.set(agent, install(agent, ctx, resolved));
 	};
+	// One plugin-scoped policy section. Registering it per agent would tie the
+	// effect to that agent's ctx (see systemPrompt.section), so it would survive a
+	// plugin unload and make the next load fail with "already registered".
+	ctx.effect(() => ctx.systemPrompt.section({
+		name: "team:policy",
+		order: ctx.systemPrompt.getSectionOrder("TEAM_POLICY"),
+		text: teamPolicy(resolved.interrupt)
+	}), "tool-team.policy()");
 	for (const agent of ctx.agents.list()) maybeInstall(agent);
 	ctx.on("agent/created", ({ agent }) => {
 		maybeInstall(agent);

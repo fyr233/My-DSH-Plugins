@@ -421,6 +421,29 @@ test('the same route compares provider, model and effort', () => {
   assert.equal(sameRoute(undefined, a), false)
 })
 
+test('the team policy section is registered once, in plugin scope', () => {
+  // systemPrompt.section() attaches its effect to the *calling* ctx. Registering
+  // it on agent.ctx makes the section outlive the plugin, so a reinstall fails
+  // with `prompt section "team:policy" is already registered in this scope` —
+  // and that failure rolls back the whole patch layer, taking the disable of the
+  // built-in tool with it. Observed on a real reinstall.
+  const source = readFileSync(new URL('../tool/index.js', import.meta.url), 'utf8')
+  const installStart = source.indexOf('function install(agent, ctx, config)')
+  const installEnd = source.indexOf('function apply(ctx, config = {})')
+  assert.ok(installStart >= 0 && installEnd > installStart, 'install() and apply() are both present')
+
+  const installBody = source.slice(installStart, installEnd)
+  // Match a real call, not the prose in the comment that explains this rule.
+  assert.equal(
+    /scoped\.systemPrompt\.section\s*\(/.test(installBody), false,
+    'install() must not register the policy section on agent scope',
+  )
+
+  const applyBody = source.slice(installEnd)
+  const registrations = applyBody.match(/systemPrompt\.section\(/g) ?? []
+  assert.equal(registrations.length, 1, 'apply() registers the policy section exactly once')
+})
+
 // --- output contract ------------------------------------------------------
 
 test('the member row schema declares every field the tools emit', () => {
