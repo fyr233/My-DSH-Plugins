@@ -428,7 +428,7 @@ test('the team policy section is registered once, in plugin scope', () => {
   // and that failure rolls back the whole patch layer, taking the disable of the
   // built-in tool with it. Observed on a real reinstall.
   const source = readFileSync(new URL('../tool/index.js', import.meta.url), 'utf8')
-  const installStart = source.indexOf('function install(agent, ctx, config)')
+  const installStart = source.indexOf('function install(agent, ctx, config')
   const installEnd = source.indexOf('function apply(ctx, config = {})')
   assert.ok(installStart >= 0 && installEnd > installStart, 'install() and apply() are both present')
 
@@ -442,6 +442,25 @@ test('the team policy section is registered once, in plugin scope', () => {
   const applyBody = source.slice(installEnd)
   const registrations = applyBody.match(/systemPrompt\.section\(/g) ?? []
   assert.equal(registrations.length, 1, 'apply() registers the policy section exactly once')
+})
+
+test('a stopped teammate gets a deferred route instead of an error', () => {
+  // Requiring the member to be running was a design mistake: a stopped member has
+  // no attached Session, so the call failed and the only workaround was to wake it
+  // first - which then ran on the OLD route. The route is now recorded and applied
+  // when the agent is created again.
+  //
+  // `tool/index.js` cannot be imported here, so this pins the arrangement
+  // textually: no "has no Session to change" throw, a defer branch for the
+  // non-live case, and the deferred route applied on agent creation.
+  const source = readFileSync(new URL('../tool/index.js', import.meta.url), 'utf8')
+  assert.equal(
+    source.includes('has no Session to change'), false,
+    'set_teammate_model must not refuse a stopped member any more',
+  )
+  assert.match(source, /if \(live === void 0\) seam\.defer\(/, 'the non-live branch records the route')
+  assert.match(source, /const deferred = seam\.take\(agent\.id\)/, 'a recreated agent takes its deferred route')
+  assert.match(source, /if \(deferred !== void 0\) seam\.apply\(agent, deferred\)/, 'and applies it immediately')
 })
 
 // --- output contract ------------------------------------------------------

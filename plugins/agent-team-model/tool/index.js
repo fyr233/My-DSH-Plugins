@@ -285,7 +285,7 @@ async function resolveTeammateAgentOptions(ctx, agent, args, signal) {
 	return plan.agentOptions;
 }
 /** Register the complete Team tool set in one exact Agent scope. */
-function install(agent, ctx, config) {
+function install(agent, ctx, config, seam) {
 	const scoped = agent.ctx;
 	const disposers = [];
 	const register = (disposer) => {
@@ -398,29 +398,24 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 				if (row.role !== "teammate") throw new Error("set_teammate_model: the Team Lead cannot change its own model");
 				const live = ctx.agents.get(row.id);
 				const session = live?.session ?? ctx.get("sessions")?.get(row.id);
-				if (session === void 0) throw new Error(`set_teammate_model: teammate "${args.target}" has no Session to change`);
-				const projection = ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
-				const previous = pickSelectedRoute(projection) ?? {
+				const projection = session === void 0 ? void 0 : ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
+				const previous = pickSelectedRoute(projection) ?? seam.peek(row.id) ?? {
 					provider: live?.options.provider,
 					model: live?.options.model,
 					reasoningEffort: live?.options.reasoningEffort
 				};
 				const selection = planTeammateModelChange(ctx.get("subagentModelSelection"), previous, args);
-				if (sameRoute(pickSelectedRoute(projection), selection)) return modelMember(row);
+				if (sameRoute(pickSelectedRoute(projection) ?? seam.peek(row.id), selection)) return modelMember(row);
 				const llm = ctx.get("llm");
 				if (llm !== void 0) await llm.resolveCallConfig({
 					provider: selection.provider,
 					model: selection.model,
 					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
 				}, exec.signal);
-				if (live === void 0) {
-					session.append("model/selection", selection);
-				} else {
-					const controller = ctx.get("sessionController");
-					const apply = controller?.agents?.selectForNextRequest;
-					if (typeof apply !== "function") throw new Error("set_teammate_model: this Host does not expose the Session model-selection seam; restart the app after upgrading");
-					apply.call(controller.agents, live, selection);
-				}
+				// A stopped teammate has no attached Session to write into, so the route
+				// is recorded and applied when the member next starts (see apply()).
+				if (live === void 0) seam.defer(row.id, selection);
+				else seam.apply(live, selection);
 				return {
 					...modelMember(row),
 					model: selection.model,
@@ -473,7 +468,9 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 					const live = ctx.agents.get(member.id);
 					const session = live?.session ?? ctx.get("sessions")?.get(member.id);
 					const projection = session === void 0 ? void 0 : ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
-					const model = pickMemberModel(projection, live?.options);
+					// A route chosen while the member was stopped is the newest intent,
+					// and it cannot show up in the projection yet.
+					const model = seam.peek(member.id)?.model ?? pickMemberModel(projection, live?.options);
 					return model === void 0 ? view : {
 						...view,
 						model
@@ -689,10 +686,40 @@ function apply(ctx, config = {}) {
 		freshProvider: config.freshProvider ?? "spawn",
 		forkProvider: config.forkProvider ?? "fork"
 	};
+	// A teammate that is not running has no attached Session, so its
+	// `model/selection` event cannot be written yet. The route is recorded here
+	// instead and applied the moment the agent is created again: by then the
+	// Session exists, and the Host's selectionFor() reads the projection's
+	// `pending` value on first install, so the member's very next request already
+	// uses the new route.
+	const deferredRoutes = /* @__PURE__ */ new Map();
+	const seam = {
+		defer(sessionId, selection) {
+			deferredRoutes.set(sessionId, selection);
+		},
+		peek(sessionId) {
+			return deferredRoutes.get(sessionId);
+		},
+		take(sessionId) {
+			const selection = deferredRoutes.get(sessionId);
+			if (selection !== void 0) deferredRoutes.delete(sessionId);
+			return selection;
+		},
+		apply(live, selection) {
+			const controller = ctx.get("sessionController");
+			const select = controller?.agents?.selectForNextRequest;
+			if (typeof select !== "function") throw new Error("set_teammate_model: this Host does not expose the Session model-selection seam; restart the app after upgrading");
+			select.call(controller.agents, live, selection);
+		}
+	};
 	const installed = /* @__PURE__ */ new Map();
 	const maybeInstall = (agent) => {
 		if (installed.has(agent) || ctx.agentTeams.tryMembership(agent) === void 0) return;
-		installed.set(agent, install(agent, ctx, resolved));
+		installed.set(agent, install(agent, ctx, resolved, seam));
+		// A route recorded while this member was stopped takes effect now: the
+		// Session exists again, so the seam can write model/selection into it.
+		const deferred = seam.take(agent.id);
+		if (deferred !== void 0) seam.apply(agent, deferred);
 	};
 	// One plugin-scoped policy section. Registering it per agent would tie the
 	// effect to that agent's ctx (see systemPrompt.section), so it would survive a

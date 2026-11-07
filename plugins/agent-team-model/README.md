@@ -31,8 +31,12 @@ set_teammate_model({ target: 'reviewer', model: 'other-model' })
   载荷里带 `step`（`dsh-agent-loop/lib/index.js:1191-1195`），每个 step 都会重新解析一次路由，
   所以一个多 step 的 turn 会在**下一个 step** 就换用新模型，而不是等整个 turn 跑完。
   只有「已经在等模型回复的那一次请求」无法回头。
-- **目标成员必须是 live 的**。`inactive` 成员的 Session 没有挂载进内存，调用会报
-  `has no Session to change`——先 `send_message` 唤起再改（实测，见「验证」段）。
+- **停着的成员也能改**。`inactive` 成员的 Session 没挂载进内存，写不了 `model/selection` 事件，
+  所以路由会先记在插件里，等这个成员下次被唤起（`agent/created`）时立刻落下——
+  宿主 `selectionFor()` 首次安装时会读投影的 `pending`，因此成员**醒来后的第一个请求就用新路由**。
+  > 这条设计是修过的：旧实现直接报 `has no Session to change`，逼得使用者「先发消息唤醒再改」，
+  > 而唤醒那一轮必然用旧模型跑，改不了就等于死循环。延迟应用消除了这个循环。
+  > 代价：待应用的路由只存在内存里，**重启应用会丢**（成员还没被唤起的情况下）。
 - 成员 inactive 且读不到其投影时，必须同时给 `provider`，否则报
   `cannot resolve an effective provider and model`（宁可报错也不猜一个 provider）。
 - 与 `spawn_teammate` 共用同一份白名单和 preflight；重复设置同一路由不会多落事件。
@@ -232,17 +236,21 @@ node plugins/agent-team-model/verify-vendor.mjs   # vendor 漂移检查（基线
 > 执行工具调用时）也不产生提示——那一 step 的 prompt 已装配完，宿主比不出"路由变了"。
 > 两种情况下路由**都已实际切换**（下一 header `reason=change` 可见），只是没有那条提示。
 
-**已知限制：目标成员必须是 live 的。** 实测（2026-11-06，由成员 `route-admin` 经工具调用验证）：
-对一个 inactive 成员调用会报
+**历史记录：曾经有个「必须 live」的限制，已修掉。** 旧实现对一个 `inactive` 成员调用会报
 
 ```
 set_teammate_model: teammate "<name>" has no Session to change
 ```
 
-原因是该成员的 Session 没有挂载进内存（`ctx.agents.get()` 与 `ctx.get("sessions").get()` 都取不到）。
-这**不是**权限、白名单或 provider 缺失的问题——它发生在更早的一步。
-要让成员变成 live：先 `send_message` 给它一句话唤起，再调用。
-同一个实验也确认了工具对成员可见（成员侧 `tools-available: yes`）。
+原因：该成员的 Session 没挂载进内存（`ctx.agents.get()` 与 `ctx.get("sessions").get()` 都取不到），
+写不了 `model/selection` 事件。当时的变通是「先 `send_message` 唤起再改」——但唤醒那一轮
+必然用旧模型跑，改不了就成死循环，所以这是**设计缺陷而非合理约束**。
+
+现在的做法：停着的成员调用会在插件内记下待应用路由，等它下次 `agent/created` 时立刻落下，
+于是**醒来后的第一个请求就用新路由**。不需要先唤醒、也不会跑一轮旧模型。
+
+> 剩余代价：待应用路由只在内存里，重启应用会丢（该成员还没被唤起的情况下）。
+> 工具对成员可见这点不变（成员侧 `tools-available: yes`）。
 
 ### 会话日志里的完整证据链（2026-11-06，rc.3）
 
