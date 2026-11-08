@@ -97,8 +97,11 @@ export function planTeammateModelChange(settings, current, args, tool = 'set_tea
   assertAllowed(settings, provider, model, tool)
 
   // A route change without an explicit effort lets the new model resolve its own
-  // default; an effort-only change keeps the current route.
-  const reasoningEffort = wantsEffort ? args.reasoning_effort : wantsModel || wantsProvider ? undefined : current?.reasoningEffort
+  // default, and an effort-only change keeps the current route. Those are the only
+  // two possibilities left: an omitted route change would have returned above, and
+  // a provider without a model is rejected above, so effort never falls back to the
+  // current value.
+  const reasoningEffort = wantsEffort ? args.reasoning_effort : undefined
 
   return {
     provider,

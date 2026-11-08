@@ -607,6 +607,31 @@ test('teardown swallows disposer failures and still forgets the agent', () => {
   )
 })
 
+// --- effort semantics -----------------------------------------------------
+
+test('a resolved route has exactly two effort outcomes', () => {
+  const settings = { current: () => ({ enabled: true, allowedModels: [{ provider: 'my-provider', model: 'm1' }, { provider: 'my-provider', model: 'm2' }] }) }
+  const current = { provider: 'my-provider', model: 'm1', reasoningEffort: 'high' }
+  // Effect given: it is used verbatim, and the route is kept.
+  assert.deepEqual(
+    planTeammateModelChange(settings, current, { reasoning_effort: 'low' }),
+    { provider: 'my-provider', model: 'm1', reasoningEffort: 'low' },
+  )
+  // Route given without effort: effort is dropped so the new model resolves its own
+  // default. It never silently keeps the old model's effort.
+  assert.deepEqual(
+    planTeammateModelChange(settings, current, { model: 'm2' }),
+    { provider: 'my-provider', model: 'm2' },
+  )
+  // A provider without a model is rejected before effort is considered at all.
+  assert.throws(
+    () => planTeammateModelChange(settings, current, { provider: 'my-provider' }),
+    /provider` requires `model/,
+  )
+  // Nothing at all is rejected too, so there is no third "keep everything" outcome.
+  assert.throws(() => planTeammateModelChange(settings, current, {}), /at least one of/)
+})
+
 // --- creation route -------------------------------------------------------
 
 test('a new member keeps the model it was spawned with', () => {
