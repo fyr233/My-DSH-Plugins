@@ -421,7 +421,20 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 						reasoningEffort: live?.options.reasoningEffort
 					};
 				const selection = planTeammateModelChange(ctx.get("subagentModelSelection"), previous, args);
-				if (sameRoute(pickSelectedRoute(projection) ?? seam.peek(row.id), selection)) return modelMember(row);
+				// One response shape whether or not anything had to be written: report the
+				// route the member resolves to now. Returning the raw roster row here used
+				// to leak its creation-time (or Lead-derived) model, so a no-op was
+				// indistinguishable from a change.
+				const answer = {
+					...modelMember(row),
+					model: selection.model,
+					provider: selection.provider,
+					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
+				};
+				// Compare against the route we resolved, not just the projection: a stopped
+				// member's current route comes from its persisted log, and ignoring that
+				// made an already-correct member look like it needed another write.
+				if (sameRoute(previous, selection)) return answer;
 				const llm = ctx.get("llm");
 				if (llm !== void 0) await llm.resolveCallConfig({
 					provider: selection.provider,
@@ -433,12 +446,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 				if (live === void 0) seam.defer(row.id, selection);
 				else seam.apply(live, selection);
 				seam.remember(row.id, selection);
-				return {
-					...modelMember(row),
-					model: selection.model,
-					provider: selection.provider,
-					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
-				};
+				return answer;
 			}
 		})));
 		register(scoped.tools.register(defineTool({

@@ -518,6 +518,17 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
   assert.match(source, /event\?\.type !== "request\/header"/, 'and folds request headers only')
   assert.match(source, /seam\.remember\(agent\.id, selection\.current\)/, 'observed routes are remembered')
   assert.match(source, /seam\.remember\(row\.id, selection\)/, 'a applied change is remembered too')
+  // A no-op change must answer in the same shape as a real one. Returning the raw
+  // roster row instead leaked its creation-time (or Lead-derived) model, so callers
+  // could not tell "already correct" from "changed".
+  assert.match(source, /if \(sameRoute\(previous, selection\)\) return answer;/, 'the no-op compares the resolved route')
+  assert.equal(
+    /if \(sameRoute\(pickSelectedRoute\(projection\)/.test(source),
+    false,
+    'the no-op must not compare the projection alone',
+  )
+  const answerUses = (source.match(/return answer;/g) ?? []).length
+  assert.equal(answerUses, 2, 'both the no-op and the changed path return the same shape')
   // Structural guarantee: the Lead is never routed by this plugin. Its model
   // belongs to its own Session and the user's picker, and an earlier diagnostic
   // fallback re-routed a live Lead Session by mistake.
