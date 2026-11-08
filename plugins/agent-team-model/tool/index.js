@@ -296,35 +296,11 @@ function install(agent, ctx, config, seam) {
 		for (const undo of disposers.splice(0).reverse()) undo();
 	};
 	try {
-		// Keep a chosen route effective for every step, not just the first one after
-		// it was set. The Host retires the pending selection as soon as a matching
-		// request header is logged (`consumeSelection`), so a single application
-		// lapses: a member changed to model B ran one successful turn, then reverted
-		// to its creation-time model and failed 404. Re-arming here runs before prompt
-		// assembly resolves the request, and the sameRoute guard keeps it silent once
-		// the session already uses that route.
-		register(scoped.on("agent/pre-step", async (_payload, next) => {
-			// agent/pre-step is a WATERFALL: it must always return next(). Returning
-			// undefined made the loop read `decision.kind` off nothing, and the whole
-			// turn failed with "Cannot read properties of undefined (reading 'kind')".
-			//
-			// SAFETY: only a route recorded for THIS agent's own Session may be
-			// applied, and never to the Lead. An earlier diagnostic fallback that
-			// took "the one recorded route" re-routed the Lead's own Session by
-			// mistake, so the identity check here is deliberately strict: no route,
-			// no action.
-			const sessionId = agent.session?.header?.id;
-			const wanted = sessionId === void 0 ? void 0 : seam.peek(sessionId);
-			const last = agent.session.requestHeader()?.config;
-			if (wanted === void 0 || sameRoute(last, wanted)) return next();
-			if (ctx.agentTeams.membership(agent).role !== "teammate") return next();
-			try {
-				seam.apply(agent, wanted);
-			} catch {
-				/* the message loop reports an unusable seam on its own path */
-			}
-			return next();
-		}));
+		// The route is maintained from apply()'s agent/created hook, not from a
+		// per-step listener. A pre-step rewrite cannot work here anyway:
+		// systemPrompt.assemble() runs BEFORE agent/pre-step, and agent/request is
+		// built from the selection snapshotted during assemble, so writing in
+		// pre-step only ever affects the following step.
 		// The team:policy section is registered once in plugin scope by apply(),
 		// not here. systemPrompt.section() ties its effect to the *calling* ctx, so
 		// registering it on agent.ctx would outlive the plugin and collide the next
@@ -335,7 +311,12 @@ function install(agent, ctx, config, seam) {
 			order: scoped.systemPrompt.getContextOrder("TEAM_IDENTITY"),
 			required: true,
 			text: () => {
-				const { role, name } = ctx.agentTeams.membership(agent);
+				// Runs during prompt assembly: a TeamError here (membership can be gone
+				// after the Lead's Session ends) would fail the whole step, so the
+				// non-throwing lookup is used and a missing membership yields no text.
+				const membership = ctx.agentTeams.tryMembership(agent);
+				if (membership === void 0) return "";
+				const { role, name } = membership;
 				return `${role === "lead" ? "You are the Team Lead named \"lead\"." : `You are teammate "${name}".\nYour Team Lead is named "lead".\nTo message your Team Lead, use send_message({ target: "lead", message: "..." }).`}
 Use list_agents({}) to find your teammates and their names.
 To message another teammate, use send_message({ target: "<teammate name>", message: "..." }).`;
@@ -729,6 +710,22 @@ function apply(ctx, config = {}) {
 		peek(sessionId) {
 			return deferredRoutes.get(sessionId);
 		},
+		/**
+		 * Install the Host's own model-selection machinery for this Agent instance.
+		 *
+		 * This is the part that actually decides the request route: selectionFor()
+		 * registers the `agent/request` listener that overwrites provider/model from
+		 * the Session's selection. Without it the loop seeds the request from
+		 * `AgentOptions` — the route the member was spawned with — so a changed route
+		 * silently reverts on the next instance. It is idempotent (one selection per
+		 * agent, kept in a WeakMap) and writes no event.
+		 * @returns the installed selection, whose `current` is the effective route.
+		 */
+		ensure(live) {
+			const agents = ctx.get("sessionController")?.agents;
+			if (typeof agents?.selectionFor !== "function") throw new Error("set_teammate_model: this Host does not expose the Session model-selection seam; restart the app after upgrading");
+			return agents.selectionFor(live);
+		},
 		apply(live, selection) {
 			const controller = ctx.get("sessionController");
 			const select = controller?.agents?.selectForNextRequest;
@@ -752,15 +749,23 @@ function apply(ctx, config = {}) {
 			return
 		}
 		installed.set(agent, dispose);
-		// A chosen route must be re-applied to EVERY new Agent instance, not just the
-		// next one. The Host retires the pending selection as soon as a request
-		// header matching it is logged (`consumeSelection`), and each teammate turn
-		// resumes as a fresh instance whose selectionFor() then falls back to the
-		// route in the last request header. Applying once would silently lapse.
+		// Every team member needs the Host's selection machinery installed, whether or
+		// not this plugin has a route to apply. Skipping it when the Session already
+		// showed the wanted route was the bug that made a change lapse: the guard was
+		// true on the second instance, so `selectionFor()` never ran, the `agent/request`
+		// override was absent, and the request fell back to the spawn-time route.
+		let selection
+		try {
+			selection = seam.ensure(agent);
+		} catch (error) {
+			ctx.logger?.warn?.(`agent-team-model: could not install model selection for "${agent.id}": ${error instanceof Error ? error.message : String(error)}`);
+			return;
+		}
+		// Only a route recorded for this very Session may be applied, and only when it
+		// differs from what the Session already resolves to. Reading the selection
+		// rather than a projection keeps this free of identity assumptions.
 		const wanted = seam.peek(agent.id);
-		if (wanted === void 0) return;
-		const last = pickSelectedRoute(ctx.get("sessionProjections")?.stateOf(agent.session, "modelSelection"));
-		if (sameRoute(last, wanted)) return;
+		if (wanted === void 0 || sameRoute(selection.current, wanted)) return;
 		try {
 			seam.apply(agent, wanted);
 		} catch (error) {
