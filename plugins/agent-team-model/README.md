@@ -58,8 +58,11 @@ set_teammate_model({ target: 'reviewer', model: 'other-model' })
   > 这条设计是修过的：旧实现直接报 `has no Session to change`，逼得使用者「先发消息唤醒再改」，
   > 而唤醒那一轮必然用旧模型跑，改不了就等于死循环。延迟应用消除了这个循环。
   > 代价：待应用的路由只存在内存里，**重启应用会丢**（成员还没被唤起的情况下）。
-- 成员 inactive 且读不到其投影时，必须同时给 `provider`，否则报
-  `cannot resolve an effective provider and model`（宁可报错也不猜一个 provider）。
+- **`provider` 一般可以省略**。省略时按此顺序解析：会话投影 → 待应用记录 → **成员的持久会话日志
+  里的 `request/header`** → 该 agent 的创建参数。只有这些来源全都拿不到（例如成员从未运行过、
+  日志也不可读）才会报 `cannot resolve an effective provider and model`。
+  > 早期版本对停着的成员一律报这个错，因为只看了内存；现在读它自己的日志，
+  > 所以「只给 `model`」是最常用的调用方式。
 - 与 `spawn_teammate` 共用同一份白名单和 preflight；重复设置同一路由不会多落事件。
 - **工具层不校验调用者角色，只校验目标是成员**。与 `spawn_teammate` 不同——后者由服务层
   `spawnAdmitted` 强制 Lead（`only the Team Lead can create teammates` / `TEAM_LEAD_REQUIRED`），
@@ -163,6 +166,34 @@ createRequire(join(process.resourcesPath, 'app.asar', 'dsh', 'package.json'))
 - 代价：`tool/index.js` 变成含 top-level await 的模块，cordis 的 `await import()` 支持它。
 - 在非 Electron 环境（如 `node --check`、普通 `node`）加载 `tool/index.js` 会**明确报错**
   说明必须运行在 Harness 桌面应用内，而不是抛裸的 `MODULE_NOT_FOUND`。
+
+### 路由是怎么跨轮次保持的
+
+这一段是最近几次修复的核心，也是最容易误解的地方。成员**每一轮都是一个新的 Agent 实例**，
+所以"改完之后下次还能不能用"取决于下面四件事，而不是"把值存起来"。
+
+1. **`selectionFor(agent)` 才决定请求用什么路由。** 它在 `agent/request` 上装覆盖器；
+   没装的话，请求的种子来自 `AgentOptions`（spawn 时的路由），会话里写过什么都不算数。
+   因此创建钩子对**每个成员实例无条件**安装它（幂等，不写事件）。
+2. **路由本身由会话日志携带。** 第一次请求写下 `request/header` 之后，
+   `selectionFor` 的 `current` 就会回退到那个 header——不需要插件反复重写。
+   （早先的实现每 step 重写一次，位置还是错的：`systemPrompt/assemble` 跑在
+   `agent/pre-step` 之前，写了也只对下一步生效，而且每步落一条事件。）
+3. **停着的成员靠一条内存记录过渡。** 它没有挂载的 Session，写不了事件，
+   于是先把路由记下，等它下次启动时落下。这条记录在三种情况下会让位：
+   - 会话已经解析出这个路由 → **立即删除**（使命完成，留着会覆盖用户之后在 UI 上的选择）
+   - 会话里出现一个**不同的** `pending` → 让路（我们写入的 pending 一定等于记录，
+     不同就说明是别人之后写的）
+   - 插件重载/重启 → 随内存消失，需要重新设置
+4. **新成员要用自己的创建路由压住默认模型。** 全新会话没有 header，
+   `selectionFor` 会回退到**部署默认模型**；因为第 1 条无条件装了覆盖器，
+   这个默认值本来会把 spawn 时指定的模型替换掉。所以创建时把选择钉在成员自己的创建路由上
+   （`pinCreationRoute`，纯函数，有单测覆盖）。
+
+推论（使用者视角）：
+- 改完模型后**不需要**再发一条消息去"激活"，下一次请求就是新模型；
+- 想让改动长期有效，就让它跑一次——跑过之后路由进了会话日志，与插件内存无关；
+- 插件重启会丢掉"还没被消费的"改动，这是内存记录的固有代价。
 
 ## 安装
 
@@ -415,7 +446,14 @@ set_teammate_model: teammate "<name>" has no Session to change
   要真正清空只能**换一个新会话**（团队绑定在 Lead 的 Session 上），或者调高 `maxMembers`。
   验证时请复用同一个成员（`set_teammate_model` + `send_message` 就够了），不要为每个用例新建。
 
+- **改动落在会话里，不是落在配置里。** `set_teammate_model` 写的是该成员的
+  `model/selection` 事件（停着时先记在内存、下次启动再写）。所以：
+  - 成员跑过一次之后，这个路由就写进它的会话日志了，插件重启不影响；
+  - 但**还没被消费**的改动只在内存里，插件重载/应用重启会丢，需要重新设置；
+  - 想彻底回到创建时的路由，反向设回去即可（没有"清除"语义）。
+
 ## License
+
 
 MIT。`tool/index.js` 派生自 `@deepseek-ai/dsh-experimental-tool-agent-team`（MIT），
 见同目录 `LICENSE`。
