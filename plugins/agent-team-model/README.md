@@ -285,6 +285,10 @@ set_teammate_model: teammate "<name>" has no Session to change
 
 如果将来确实需要，正确的落点是**等成员下次被唤起时写事件**（已实现），持久化只是省一次重设。
 
+真机验证（2026-11-08，`route-check-luna`，连续两轮）：两轮请求头都是新模型、
+`turn/end` 都是 `completed`，且**第 2 轮没有再写 `model/selection`**——路由由会话日志里的
+`request/header` 维持，不是靠反复重写。此前同一用例第 2 轮会回退到旧模型并 404。
+
 真机验证（2026-11-07，`route-check-luna`）：
 
 | 时刻 | 投影 `modelSelection` |
