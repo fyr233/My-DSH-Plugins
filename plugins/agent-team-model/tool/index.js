@@ -844,6 +844,19 @@ function apply(ctx, config = {}) {
 		// differs from what the Session already resolves to. Reading the selection
 		// rather than a projection keeps this free of identity assumptions.
 		const wanted = seam.peek(agent.id);
+		// A brand-new Session has no request header yet, and selectionFor() then falls
+		// back to the DEPLOYMENT DEFAULT model. Since installing the seam also installs
+		// the request override, that default would replace the route the member was
+		// spawned with. Pin the selection to the member's own creation route instead,
+		// which is exactly what the loop would have used without the seam.
+		if (agent.session.requestHeader() === void 0 && wanted === void 0) {
+			const own = {
+				provider: agent.options?.provider,
+				model: agent.options?.model,
+				...(agent.options?.reasoningEffort === void 0 ? {} : { reasoningEffort: agent.options.reasoningEffort })
+			};
+			if (own.provider !== void 0 && own.model !== void 0) selection.current = own;
+		}
 		seam.remember(agent.id, selection.current);
 		if (wanted === void 0 || sameRoute(selection.current, wanted)) return;
 		try {

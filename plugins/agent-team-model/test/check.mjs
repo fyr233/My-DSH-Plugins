@@ -527,6 +527,16 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
   assert.match(source, /event\?\.type !== "request\/header"/, 'and folds request headers only')
   assert.match(source, /seam\.remember\(agent\.id, selection\.current\)/, 'observed routes are remembered')
   assert.match(source, /seam\.remember\(row\.id, selection\)/, 'a applied change is remembered too')
+  // Installing the seam also installs the request override, and on a brand-new
+  // Session selectionFor() falls back to the DEPLOYMENT DEFAULT model - which would
+  // silently replace the route the member was spawned with. The selection is pinned
+  // to the member's own creation route while the Session has no header yet.
+  assert.match(
+    source,
+    /if \(agent\.session\.requestHeader\(\) === void 0 && wanted === void 0\)/,
+    'a fresh Session pins its selection to the creation route',
+  )
+  assert.match(source, /selection\.current = own;/, 'and never to the deployment default')
   // A no-op change must answer in the same shape as a real one. Returning the raw
   // roster row instead leaked its creation-time (or Lead-derived) model, so callers
   // could not tell "already correct" from "changed".
