@@ -502,6 +502,17 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
     /try \{\s*selection = seam\.ensure\(agent\);\s*\} catch/,
     'a failing seam install must be swallowed too',
   )
+  // Structural guarantee: the Lead is never routed by this plugin. Its model
+  // belongs to its own Session and the user's picker, and an earlier diagnostic
+  // fallback re-routed a live Lead Session by mistake.
+  assert.match(
+    source,
+    /const membership = ctx\.agentTeams\.tryMembership\(agent\);\s*\n\s*if \(membership\?\.role !== "teammate"\) return;/,
+    'only a teammate may reach the selection work',
+  )
+  const roleGate = source.indexOf('membership?.role !== "teammate"')
+  const ensureCall2 = source.indexOf('selection = seam.ensure(agent);')
+  assert.ok(roleGate > 0 && ensureCall2 > roleGate, 'the role gate runs before any selection work')
   // Prompt assembly must not be able to throw: membership() raises when the Team is
   // gone, which would fail the whole step.
   assert.equal(

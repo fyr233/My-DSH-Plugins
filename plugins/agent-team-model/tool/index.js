@@ -749,10 +749,16 @@ function apply(ctx, config = {}) {
 			return
 		}
 		installed.set(agent, dispose);
-		// Every team member needs the Host's selection machinery installed, whether or
-		// not this plugin has a route to apply. Skipping it when the Session already
-		// showed the wanted route was the bug that made a change lapse: the guard was
-		// true on the second instance, so `selectionFor()` never ran, the `agent/request`
+		// Only teammates are ever routed by this plugin. The Lead's model belongs to
+		// its own Session and to the user's picker; touching it once re-routed a live
+		// Lead Session by mistake, so the role check is structural rather than
+		// advisory: the Lead returns before any selection work happens.
+		const membership = ctx.agentTeams.tryMembership(agent);
+		if (membership?.role !== "teammate") return;
+		// Every teammate needs the Host's selection machinery installed, whether or not
+		// this plugin has a route to apply. Skipping it when the Session already showed
+		// the wanted route was the bug that made a change lapse: the guard was true on
+		// the second instance, so `selectionFor()` never ran, the `agent/request`
 		// override was absent, and the request fell back to the spawn-time route.
 		let selection
 		try {
