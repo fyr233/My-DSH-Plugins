@@ -502,6 +502,16 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
     /^\s*return next\(\);$/m,
     'the pre-step listener must call next() and return its result',
   )
+  // The route applied here MUST be the one recorded for this very Session, and
+  // never the Lead's. A diagnostic fallback that took "the one recorded route"
+  // re-routed the Lead's own Session by mistake during testing.
+  assert.match(listener, /seam\.peek\(sessionId\)/, 'only the Session-keyed route may be read')
+  assert.match(listener, /membership\(agent\)\.role !== "teammate"/, 'the Lead is never re-routed')
+  assert.equal(
+    /seam\.\w+\(\s*\)/.test(listener.replace(/seam\.peek\(sessionId\)/g, '')),
+    false,
+    'no fallback that ignores the Session identity may exist',
+  )
   // That call runs inside the agent/created listener, so it must not throw.
   assert.match(
     source,

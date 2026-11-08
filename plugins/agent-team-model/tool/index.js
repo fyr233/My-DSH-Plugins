@@ -307,12 +307,19 @@ function install(agent, ctx, config, seam) {
 			// agent/pre-step is a WATERFALL: it must always return next(). Returning
 			// undefined made the loop read `decision.kind` off nothing, and the whole
 			// turn failed with "Cannot read properties of undefined (reading 'kind')".
+			//
+			// SAFETY: only a route recorded for THIS agent's own Session may be
+			// applied, and never to the Lead. An earlier diagnostic fallback that
+			// took "the one recorded route" re-routed the Lead's own Session by
+			// mistake, so the identity check here is deliberately strict: no route,
+			// no action.
+			const sessionId = agent.session?.header?.id;
+			const wanted = sessionId === void 0 ? void 0 : seam.peek(sessionId);
+			const last = agent.session.requestHeader()?.config;
+			if (wanted === void 0 || sameRoute(last, wanted)) return next();
+			if (ctx.agentTeams.membership(agent).role !== "teammate") return next();
 			try {
-				const wanted = seam.peek(agent.id);
-				const last = wanted === void 0
-					? undefined
-					: pickSelectedRoute(ctx.get("sessionProjections")?.stateOf(agent.session, "modelSelection"));
-				if (wanted !== void 0 && !sameRoute(last, wanted)) seam.apply(agent, wanted);
+				seam.apply(agent, wanted);
 			} catch {
 				/* the message loop reports an unusable seam on its own path */
 			}
