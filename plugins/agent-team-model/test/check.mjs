@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pickMemberModel, pickSelectedRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from '../route.js'
+import { pickMemberModel, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from '../route.js'
 import { withTeammateAgentOptions, currentTeammateAgentOptions } from '../als.js'
 import { apply as applyBridge } from '../bridge/index.js'
 import { createHostResolvers, loadHostPackage, resolveHostPackage } from '../host.js'
@@ -531,12 +531,10 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
   // Session selectionFor() falls back to the DEPLOYMENT DEFAULT model - which would
   // silently replace the route the member was spawned with. The selection is pinned
   // to the member's own creation route while the Session has no header yet.
-  assert.match(
-    source,
-    /if \(agent\.session\.requestHeader\(\) === void 0 && wanted === void 0\)/,
-    'a fresh Session pins its selection to the creation route',
-  )
-  assert.match(source, /selection\.current = own;/, 'and never to the deployment default')
+  // The decision itself is unit-tested above; here only that the creation hook uses
+  // it, so the deployment default can never replace a spawn route.
+  assert.match(source, /pinCreationRoute\(\{/, 'the creation hook consults the pin rule')
+  assert.match(source, /selection\.current = pinned;/, 'and applies it to the selection')
   // A no-op change must answer in the same shape as a real one. Returning the raw
   // roster row instead leaked its creation-time (or Lead-derived) model, so callers
   // could not tell "already correct" from "changed".
@@ -607,6 +605,32 @@ test('teardown swallows disposer failures and still forgets the agent', () => {
     /could not release the Team tools for/,
     'teardown failures are reported as warnings',
   )
+})
+
+// --- creation route -------------------------------------------------------
+
+test('a new member keeps the model it was spawned with', () => {
+  const own = { provider: 'my-provider', model: 'own-model' }
+  // The Host's selection falls back to the deployment default on a Session with no
+  // request header, and installing the seam installs that override too - so a spawn
+  // route would otherwise be replaced on the member's very first request.
+  assert.deepEqual(
+    pinCreationRoute({ hasHeader: false, wanted: undefined, own }),
+    { provider: 'my-provider', model: 'own-model' },
+  )
+  // An explicit effort travels with it.
+  assert.deepEqual(
+    pinCreationRoute({ hasHeader: false, wanted: undefined, own: { ...own, reasoningEffort: 'high' } }),
+    { provider: 'my-provider', model: 'own-model', reasoningEffort: 'high' },
+  )
+  // Once the Session has a header it carries the route itself.
+  assert.equal(pinCreationRoute({ hasHeader: true, wanted: undefined, own }), undefined)
+  // A recorded route wins over the creation options.
+  assert.equal(pinCreationRoute({ hasHeader: false, wanted: { provider: 'p', model: 'm' }, own }), undefined)
+  // Incomplete creation options pin nothing rather than half a route.
+  assert.equal(pinCreationRoute({ hasHeader: false, wanted: undefined, own: { model: 'own-model' } }), undefined)
+  assert.equal(pinCreationRoute({ hasHeader: false, wanted: undefined, own: { provider: 'my-provider' } }), undefined)
+  assert.equal(pinCreationRoute({ hasHeader: false, wanted: undefined, own: undefined }), undefined)
 })
 
 // --- output contract ------------------------------------------------------

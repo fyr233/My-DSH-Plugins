@@ -24,7 +24,7 @@ const DEFAULT_BASELINE = join(HERE, '..', '..', '.scratch', 'vendor-baseline', '
 
 /** Markers that must exist in the patched copy. */
 const REQUIRED = [
-  ['route planner import', 'import { pickSelectedRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";'],
+  ['route planner import', 'import { pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";'],
   // Every identifier imported from route.js must actually be used, and every
   // route.js helper the tool calls must be imported. A missing one is a runtime
   // ReferenceError that unit tests never see, because they only load route.js.

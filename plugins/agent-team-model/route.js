@@ -138,3 +138,33 @@ export function sameRoute(a, b) {
   if (a === undefined || b === undefined) return false
   return a.provider === b.provider && a.model === b.model && (a.reasoningEffort ?? undefined) === (b.reasoningEffort ?? undefined)
 }
+
+/**
+ * The selection a brand-new Session must be pinned to.
+ *
+ * Installing the Host's selection seam also installs the request override, and
+ * `selectionFor()` resolves a Session with no request header at all to the
+ * DEPLOYMENT DEFAULT model. For a member that was just spawned with an explicit
+ * route that default would replace it, so the selection has to be pinned to the
+ * member's own creation route instead — which is what the loop would have used
+ * without the seam.
+ *
+ * Kept pure so the spawn case can be tested even when the roster is full and no
+ * member can actually be created.
+ *
+ * @param options - `{ hasHeader, wanted, own }`: whether the Session already
+ *   logged a request header, the route this plugin recorded for it (if any), and
+ *   the options the Agent was created with.
+ * @returns the route to pin, or undefined to leave the Host's answer alone.
+ */
+export function pinCreationRoute({ hasHeader, wanted, own }) {
+  if (hasHeader || wanted !== undefined) return undefined
+  const provider = own?.provider
+  const model = own?.model
+  if (provider === undefined || model === undefined) return undefined
+  return {
+    provider,
+    model,
+    ...own?.reasoningEffort === undefined ? {} : { reasoningEffort: own.reasoningEffort },
+  }
+}

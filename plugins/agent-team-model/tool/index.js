@@ -1,6 +1,6 @@
 import { loadHostPackage } from "../host.js";
 import { withTeammateAgentOptions } from "../als.js";
-import { pickSelectedRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";
+import { pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";
 // Host packages come from the running application rather than a static bare
 // import: a directory-linked bundle has no node_modules, so Node's walk-up from
 // this file cannot see the Host's copies and the module would fail to load.
@@ -849,14 +849,12 @@ function apply(ctx, config = {}) {
 		// the request override, that default would replace the route the member was
 		// spawned with. Pin the selection to the member's own creation route instead,
 		// which is exactly what the loop would have used without the seam.
-		if (agent.session.requestHeader() === void 0 && wanted === void 0) {
-			const own = {
-				provider: agent.options?.provider,
-				model: agent.options?.model,
-				...(agent.options?.reasoningEffort === void 0 ? {} : { reasoningEffort: agent.options.reasoningEffort })
-			};
-			if (own.provider !== void 0 && own.model !== void 0) selection.current = own;
-		}
+		const pinned = pinCreationRoute({
+			hasHeader: agent.session.requestHeader() !== void 0,
+			wanted,
+			own: agent.options
+		});
+		if (pinned !== void 0) selection.current = pinned;
 		seam.remember(agent.id, selection.current);
 		if (wanted === void 0 || sameRoute(selection.current, wanted)) return;
 		try {
