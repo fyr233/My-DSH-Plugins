@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pickMemberModel, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from '../route.js'
+import { isSupersededByPending, pickMemberModel, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from '../route.js'
 import { withTeammateAgentOptions, currentTeammateAgentOptions } from '../als.js'
 import { apply as applyBridge } from '../bridge/index.js'
 import { createHostResolvers, loadHostPackage, resolveHostPackage } from '../host.js'
@@ -634,6 +634,25 @@ test('a resolved route has exactly two effort outcomes', () => {
   )
   // Nothing at all is rejected too, so there is no third "keep everything" outcome.
   assert.throws(() => planTeammateModelChange(settings, current, {}), /at least one of/)
+})
+
+// --- superseded records ---------------------------------------------------
+
+test('a record yields to a newer pending selection', () => {
+  const wanted = { provider: 'my-provider', model: 'mine' }
+  // Our own writes always leave pending equal to the record, so this is not a
+  // conflict.
+  assert.equal(isSupersededByPending({ provider: 'my-provider', model: 'mine' }, wanted), false)
+  // No pending at all: nothing newer was written.
+  assert.equal(isSupersededByPending(null, wanted), false)
+  assert.equal(isSupersededByPending(undefined, wanted), false)
+  // A different pending came from someone else - the user's model picker - so the
+  // record must not revert it.
+  assert.equal(isSupersededByPending({ provider: 'my-provider', model: 'theirs' }, wanted), true)
+  // Differences in effort count as a different route.
+  assert.equal(isSupersededByPending({ provider: 'my-provider', model: 'mine', reasoningEffort: 'high' }, wanted), true)
+  // Nothing recorded means nothing to yield.
+  assert.equal(isSupersededByPending({ provider: 'my-provider', model: 'theirs' }, undefined), false)
 })
 
 // --- creation route -------------------------------------------------------

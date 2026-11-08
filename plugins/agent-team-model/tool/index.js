@@ -1,6 +1,6 @@
 import { loadHostPackage } from "../host.js";
 import { withTeammateAgentOptions } from "../als.js";
-import { pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";
+import { isSupersededByPending, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";
 // Host packages come from the running application rather than a static bare
 // import: a directory-linked bundle has no node_modules, so Node's walk-up from
 // this file cannot see the Host's copies and the module would fail to load.
@@ -283,6 +283,16 @@ async function resolveTeammateAgentOptions(ctx, agent, args, signal) {
 	if (plan === void 0) return void 0;
 	await assertRoutable(ctx, plan, signal);
 	return plan.agentOptions;
+}
+/**
+* The Session's pending model selection, or null when it has none.
+* @param ctx - plugin context carrying the projection registry.
+* @param session - the Session to read.
+* @returns the pending selection, or undefined when unavailable.
+*/
+function pendingSelectionOf(ctx, session) {
+	const state = ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
+	return state === void 0 ? void 0 : state.pending ?? null;
 }
 /** Register the complete Team tool set in one exact Agent scope. */
 function install(agent, ctx, config, seam) {
@@ -868,6 +878,14 @@ function apply(ctx, config = {}) {
 		if (pinned !== void 0) selection.current = pinned;
 		seam.remember(agent.id, selection.current);
 		if (wanted === void 0) return;
+		// A pending selection that differs from the record was written after it - by
+		// the user's model picker, for instance. Ours is stale, so drop it rather than
+		// reverting their choice.
+		const pending = pendingSelectionOf(ctx, agent.session);
+		if (isSupersededByPending(pending, wanted)) {
+			seam.forget(agent.id);
+			return;
+		}
 		if (sameRoute(selection.current, wanted)) {
 			// The Session already carries this route, so the record has done its job.
 			// Keeping it would make a route chosen here outlive its purpose and later

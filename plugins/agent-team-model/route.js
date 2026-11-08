@@ -143,6 +143,25 @@ export function sameRoute(a, b) {
 }
 
 /**
+ * Whether a recorded route has been superseded by a newer pending selection.
+ *
+ * This plugin writes its route through `selectForNextRequest`, which leaves the
+ * Session with `pending` equal to that route. So a pending value that differs
+ * from the record cannot be ours - it was written afterwards by someone else,
+ * typically the user picking a model in the UI. Applying the record then would
+ * revert their choice, so it is dropped instead.
+ *
+ * @param pending - the Session's current `pending` selection, or null/undefined.
+ * @param wanted - the route this plugin recorded, or undefined.
+ * @returns true when the record must yield.
+ */
+export function isSupersededByPending(pending, wanted) {
+  if (wanted === undefined) return false
+  if (pending === undefined || pending === null) return false
+  return !sameRoute(pending, wanted)
+}
+
+/**
  * The selection a brand-new Session must be pinned to.
  *
  * Installing the Host's selection seam also installs the request override, and
