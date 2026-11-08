@@ -502,6 +502,19 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
     /try \{\s*selection = seam\.ensure\(agent\);\s*\} catch/,
     'a failing seam install must be swallowed too',
   )
+  // A stopped member has no attached Session, so its provider can only be inherited
+  // from a route this plugin observed earlier. Without that memory, the documented
+  // "omitted provider keeps the member's own" promise fails for exactly the case the
+  // tool exists for (changing a member that is not running).
+  assert.match(source, /seam\.recall\(row\.id\)/, 'a stopped member inherits its last observed route')
+  // The durable answer for a stopped member is its persisted Session log: the folded
+  // request/header is what a resumed Agent seeds from. The in-memory record is only
+  // the fallback, because it cannot see a member that never ran in this process.
+  assert.match(source, /await seam\.persistedRoute\(row\.id\)/, 'a stopped member reads its persisted route')
+  assert.match(source, /controller\.inspect\(sessionId\)/, 'the persisted read uses the documented cold inspect')
+  assert.match(source, /event\?\.type !== "request\/header"/, 'and folds request headers only')
+  assert.match(source, /seam\.remember\(agent\.id, selection\.current\)/, 'observed routes are remembered')
+  assert.match(source, /seam\.remember\(row\.id, selection\)/, 'a applied change is remembered too')
   // Structural guarantee: the Lead is never routed by this plugin. Its model
   // belongs to its own Session and the user's picker, and an earlier diagnostic
   // fallback re-routed a live Lead Session by mistake.

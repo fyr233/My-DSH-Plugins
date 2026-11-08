@@ -409,11 +409,17 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 				const live = ctx.agents.get(row.id);
 				const session = live?.session ?? ctx.get("sessions")?.get(row.id);
 				const projection = session === void 0 ? void 0 : ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
-				const previous = pickSelectedRoute(projection) ?? seam.peek(row.id) ?? {
-					provider: live?.options.provider,
-					model: live?.options.model,
-					reasoningEffort: live?.options.reasoningEffort
-				};
+				// A stopped member has no attached Session, so its current route is read
+				// from the persisted log — that is what a resumed Agent would seed from.
+				const previous = pickSelectedRoute(projection)
+					?? seam.peek(row.id)
+					?? (live === void 0 ? await seam.persistedRoute(row.id) : void 0)
+					?? seam.recall(row.id)
+					?? {
+						provider: live?.options.provider,
+						model: live?.options.model,
+						reasoningEffort: live?.options.reasoningEffort
+					};
 				const selection = planTeammateModelChange(ctx.get("subagentModelSelection"), previous, args);
 				if (sameRoute(pickSelectedRoute(projection) ?? seam.peek(row.id), selection)) return modelMember(row);
 				const llm = ctx.get("llm");
@@ -426,6 +432,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 				// is recorded and applied when the member next starts (see apply()).
 				if (live === void 0) seam.defer(row.id, selection);
 				else seam.apply(live, selection);
+				seam.remember(row.id, selection);
 				return {
 					...modelMember(row),
 					model: selection.model,
@@ -478,9 +485,12 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 					const live = ctx.agents.get(member.id);
 					const session = live?.session ?? ctx.get("sessions")?.get(member.id);
 					const projection = session === void 0 ? void 0 : ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
-					// A route chosen while the member was stopped is the newest intent,
-					// and it cannot show up in the projection yet.
-					const model = seam.peek(member.id)?.model ?? pickMemberModel(projection, live?.options);
+					// A route chosen while the member was stopped is the newest intent, and
+					// it cannot show up in the projection yet. Failing that, the last route
+					// this plugin observed beats the roster's Lead-derived fallback.
+					const model = seam.peek(member.id)?.model
+						?? seam.recall(member.id)?.model
+						?? pickMemberModel(projection, live?.options);
 					return model === void 0 ? view : {
 						...view,
 						model
@@ -703,12 +713,57 @@ function apply(ctx, config = {}) {
 	// `pending` value on first install, so the member's very next request already
 	// uses the new route.
 	const deferredRoutes = /* @__PURE__ */ new Map();
+	// Last route actually observed for a member during this plugin's lifetime. The
+	// durable answer for a stopped member comes from its persisted Session (see
+	// lastPersistedRoute); this is the cheap in-memory fallback for when that read
+	// is unavailable.
+	const knownRoutes = /* @__PURE__ */ new Map();
 	const seam = {
 		defer(sessionId, selection) {
 			deferredRoutes.set(sessionId, selection);
 		},
 		peek(sessionId) {
 			return deferredRoutes.get(sessionId);
+		},
+		/** Remember the route a member was last seen using. */
+		remember(sessionId, route) {
+			if (route?.provider !== void 0 && route?.model !== void 0) knownRoutes.set(sessionId, route);
+		},
+		/** The last observed route for a member, or undefined when never seen. */
+		recall(sessionId) {
+			return knownRoutes.get(sessionId);
+		},
+		/**
+		 * The route a stopped member last ran with, read from its persisted Session.
+		 *
+		 * `inspect()` is the documented cold read ("without activating its Agent"), and
+		 * the folded `request/header` events are exactly what a resumed Agent would seed
+		 * itself from. Returns undefined when the Session cannot be read, so callers
+		 * fall back to the in-memory record instead of failing.
+		 */
+		async persistedRoute(sessionId) {
+			const controller = ctx.get("sessionController");
+			if (typeof controller?.inspect !== "function") return void 0;
+			let inspection
+			try {
+				inspection = await controller.inspect(sessionId);
+			} catch {
+				return void 0;
+			}
+			const events = inspection?.events;
+			if (!Array.isArray(events)) return void 0;
+			for (let index = events.length - 1; index >= 0; index -= 1) {
+				const event = events[index];
+				if (event?.type !== "request/header") continue;
+				const config = event.data?.header?.config;
+				if (config?.provider === void 0 || config?.model === void 0) return void 0;
+				return {
+					provider: config.provider,
+					model: config.model,
+					reasoningEffort: event.data?.header?.adapterDefaults?.reasoningEffort === true ? void 0 : config.reasoningEffort
+				};
+			}
+			return void 0;
 		},
 		/**
 		 * Install the Host's own model-selection machinery for this Agent instance.
@@ -771,6 +826,7 @@ function apply(ctx, config = {}) {
 		// differs from what the Session already resolves to. Reading the selection
 		// rather than a projection keeps this free of identity assumptions.
 		const wanted = seam.peek(agent.id);
+		seam.remember(agent.id, selection.current);
 		if (wanted === void 0 || sameRoute(selection.current, wanted)) return;
 		try {
 			seam.apply(agent, wanted);
