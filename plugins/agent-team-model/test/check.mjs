@@ -473,9 +473,13 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
   // needs to re-write it per step.
   assert.match(
     source,
-    /if \(wanted === void 0 \|\| sameRoute\(selection\.current, wanted\)\) return/,
+    /if \(sameRoute\(selection\.current, wanted\)\) \{/,
     'the route is only written when it actually differs from what the Session resolves to',
   )
+  // Once the Session carries the route, the record must be dropped: otherwise a
+  // route chosen here outlives its purpose and later overrides a model the user
+  // picks in the UI.
+  assert.match(source, /seam\.forget\(agent\.id\);/, 'a realised record is forgotten')
   assert.match(source, /seam\.apply\(agent, wanted\)/, 'otherwise it is written once')
   assert.equal(
     source.includes('seam.take('),

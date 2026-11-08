@@ -747,6 +747,17 @@ function apply(ctx, config = {}) {
 			return knownRoutes.get(sessionId);
 		},
 		/**
+		 * Drop the recorded route once the Session has realised it.
+		 *
+		 * The record exists only to carry a route into the member's next start. Once a
+		 * request header carries it, the Session itself is the authority — and keeping
+		 * the record any longer would let it override a model the user later picks in
+		 * the UI, because the record would look newer than it is.
+		 */
+		forget(sessionId) {
+			deferredRoutes.delete(sessionId);
+		},
+		/**
 		 * The route a stopped member last ran with, read from its persisted Session.
 		 *
 		 * `inspect()` is the documented cold read ("without activating its Agent"), and
@@ -856,7 +867,14 @@ function apply(ctx, config = {}) {
 		});
 		if (pinned !== void 0) selection.current = pinned;
 		seam.remember(agent.id, selection.current);
-		if (wanted === void 0 || sameRoute(selection.current, wanted)) return;
+		if (wanted === void 0) return;
+		if (sameRoute(selection.current, wanted)) {
+			// The Session already carries this route, so the record has done its job.
+			// Keeping it would make a route chosen here outlive its purpose and later
+			// override a model the user picks in the UI.
+			seam.forget(agent.id);
+			return;
+		}
 		try {
 			seam.apply(agent, wanted);
 		} catch (error) {
