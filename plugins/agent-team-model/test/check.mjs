@@ -458,7 +458,16 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
     source.includes('has no Session to change'), false,
     'set_teammate_model must not refuse a stopped member any more',
   )
-  assert.match(source, /if \(live === void 0\) seam\.defer\(/, 'the non-live branch records the route')
+  // The record is written for BOTH paths. Recording only for a stopped member left
+  // an older route in place after a live change, and that older route won on the
+  // next wake-up, reverting a route the user had already replaced.
+  assert.match(source, /seam\.defer\(row\.id, selection\);\s*\n\s*\/\//, 'the route is recorded unconditionally')
+  assert.equal(
+    /if \(live === void 0\) seam\.defer\(/.test(source),
+    false,
+    'recording must not be limited to the non-live branch',
+  )
+  assert.match(source, /if \(live !== void 0\) seam\.apply\(live, selection\);/, 'only the live branch also writes the event')
   // The route is written ONCE, by set_teammate_model or by the creation hook when
   // it differs. Afterwards the Session's own request header carries it, so nothing
   // needs to re-write it per step.

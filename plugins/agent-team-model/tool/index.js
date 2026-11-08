@@ -441,10 +441,15 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 					model: selection.model,
 					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
 				}, exec.signal);
-				// A stopped teammate has no attached Session to write into, so the route
-				// is recorded and applied when the member next starts (see apply()).
-				if (live === void 0) seam.defer(row.id, selection);
-				else seam.apply(live, selection);
+				// Record the intent BEFORE the branch, for both paths. The record is what
+				// survives into the next Agent instance, so a live change that skipped it
+				// left an older route behind — and that older route then won on the next
+				// wake-up, reverting the member to a route the user had already replaced.
+				seam.defer(row.id, selection);
+				// A stopped teammate has no attached Session to write into, so the record
+				// above is all there is until it starts (see apply()). A live one also gets
+				// the event written immediately.
+				if (live !== void 0) seam.apply(live, selection);
 				seam.remember(row.id, selection);
 				return answer;
 			}
