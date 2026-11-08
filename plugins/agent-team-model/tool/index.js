@@ -296,6 +296,28 @@ function install(agent, ctx, config, seam) {
 		for (const undo of disposers.splice(0).reverse()) undo();
 	};
 	try {
+		// Keep a chosen route effective for every step, not just the first one after
+		// it was set. The Host retires the pending selection as soon as a matching
+		// request header is logged (`consumeSelection`), so a single application
+		// lapses: a member changed to model B ran one successful turn, then reverted
+		// to its creation-time model and failed 404. Re-arming here runs before prompt
+		// assembly resolves the request, and the sameRoute guard keeps it silent once
+		// the session already uses that route.
+		register(scoped.on("agent/pre-step", async (_payload, next) => {
+			// agent/pre-step is a WATERFALL: it must always return next(). Returning
+			// undefined made the loop read `decision.kind` off nothing, and the whole
+			// turn failed with "Cannot read properties of undefined (reading 'kind')".
+			try {
+				const wanted = seam.peek(agent.id);
+				const last = wanted === void 0
+					? undefined
+					: pickSelectedRoute(ctx.get("sessionProjections")?.stateOf(agent.session, "modelSelection"));
+				if (wanted !== void 0 && !sameRoute(last, wanted)) seam.apply(agent, wanted);
+			} catch {
+				/* the message loop reports an unusable seam on its own path */
+			}
+			return next();
+		}));
 		// The team:policy section is registered once in plugin scope by apply(),
 		// not here. systemPrompt.section() ties its effect to the *calling* ctx, so
 		// registering it on agent.ctx would outlive the plugin and collide the next
@@ -700,11 +722,6 @@ function apply(ctx, config = {}) {
 		peek(sessionId) {
 			return deferredRoutes.get(sessionId);
 		},
-		take(sessionId) {
-			const selection = deferredRoutes.get(sessionId);
-			if (selection !== void 0) deferredRoutes.delete(sessionId);
-			return selection;
-		},
 		apply(live, selection) {
 			const controller = ctx.get("sessionController");
 			const select = controller?.agents?.selectForNextRequest;
@@ -728,12 +745,17 @@ function apply(ctx, config = {}) {
 			return
 		}
 		installed.set(agent, dispose);
-		// A route recorded while this member was stopped takes effect now: the
-		// Session exists again, so the seam can write model/selection into it.
-		const deferred = seam.take(agent.id);
-		if (deferred === void 0) return;
+		// A chosen route must be re-applied to EVERY new Agent instance, not just the
+		// next one. The Host retires the pending selection as soon as a request
+		// header matching it is logged (`consumeSelection`), and each teammate turn
+		// resumes as a fresh instance whose selectionFor() then falls back to the
+		// route in the last request header. Applying once would silently lapse.
+		const wanted = seam.peek(agent.id);
+		if (wanted === void 0) return;
+		const last = pickSelectedRoute(ctx.get("sessionProjections")?.stateOf(agent.session, "modelSelection"));
+		if (sameRoute(last, wanted)) return;
 		try {
-			seam.apply(agent, deferred);
+			seam.apply(agent, wanted);
 		} catch (error) {
 			ctx.logger?.warn?.(`agent-team-model: could not apply the recorded route to "${agent.id}": ${error instanceof Error ? error.message : String(error)}`);
 		}

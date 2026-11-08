@@ -459,12 +459,53 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
     'set_teammate_model must not refuse a stopped member any more',
   )
   assert.match(source, /if \(live === void 0\) seam\.defer\(/, 'the non-live branch records the route')
-  assert.match(source, /const deferred = seam\.take\(agent\.id\)/, 'a recreated agent takes its deferred route')
-  assert.match(source, /seam\.apply\(agent, deferred\)/, 'and applies it when the agent is created')
+  assert.match(
+    source,
+    /const wanted = seam\.peek\(agent\.id\)/,
+    'a recreated agent re-reads its chosen route instead of consuming it',
+  )
+  assert.match(
+    source,
+    /if \(sameRoute\(last, wanted\)\) return/,
+    'and is left alone when its session already uses that route',
+  )
+  assert.match(source, /seam\.apply\(agent, wanted\)/, 'otherwise the route is re-applied')
+  // Re-applying on EVERY instance matters: the Host retires the pending selection
+  // once a matching request header is logged, and each teammate turn resumes a
+  // fresh Agent. Consuming the record after one use made a change lapse after a
+  // single successful turn - observed on a real member.
+  assert.equal(
+    source.includes('seam.take('),
+    false,
+    'the recorded route must not be consumed after one use',
+  )
+  // Applying only at agent creation is not enough: the Agent object is reused
+  // across turns, so agent/created never fires again. A member changed to model B
+  // ran one successful turn and then reverted to its creation-time model (404).
+  assert.match(
+    source,
+    /scoped\.on\("agent\/pre-step"/,
+    'the route must be re-armed before each step, not only when the agent is created',
+  )
+  // agent/pre-step is a waterfall. A listener that returns nothing instead of
+  // next() leaves the loop reading `decision.kind` off undefined and the whole
+  // turn dies — "Cannot read properties of undefined (reading 'kind')".
+  const preStep = source.slice(source.indexOf('scoped.on("agent/pre-step"'))
+  const listenerEnd = preStep.indexOf('\n\t\t}));')
+  assert.ok(listenerEnd > 0, 'the pre-step listener is a single block')
+  const listener = preStep.slice(0, listenerEnd)
+  assert.match(listener, /async \(_payload, next\)/, 'the listener can await the chain')
+  // Anchored to a code line: the comment above also says "return next()", and an
+  // unanchored match would happily read the prose instead of the call.
+  assert.match(
+    listener,
+    /^\s*return next\(\);$/m,
+    'the pre-step listener must call next() and return its result',
+  )
   // That call runs inside the agent/created listener, so it must not throw.
   assert.match(
     source,
-    /try \{\s*seam\.apply\(agent, deferred\);\s*\} catch/,
+    /try \{\s*seam\.apply\(agent, wanted\);\s*\} catch/,
     'a failing apply must be swallowed, not break member creation',
   )
 })
