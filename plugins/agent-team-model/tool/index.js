@@ -744,9 +744,14 @@ function apply(ctx, config = {}) {
 		async persistedRoute(sessionId) {
 			const controller = ctx.get("sessionController");
 			if (typeof controller?.inspect !== "function") return void 0;
+			// Reading a persisted log is proportional to its size (measured: ~390 ms for
+			// 1.9 MB, so a long-lived member can reach seconds). This sits on a tool
+			// call, so it is bounded: on timeout the caller falls back to the in-memory
+			// record and still gets a usable answer.
+			const timeout = AbortSignal.timeout(5000);
 			let inspection
 			try {
-				inspection = await controller.inspect(sessionId);
+				inspection = await controller.inspect(sessionId, timeout);
 			} catch {
 				return void 0;
 			}

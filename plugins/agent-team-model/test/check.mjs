@@ -511,7 +511,10 @@ test('a stopped teammate gets a deferred route instead of an error', () => {
   // request/header is what a resumed Agent seeds from. The in-memory record is only
   // the fallback, because it cannot see a member that never ran in this process.
   assert.match(source, /await seam\.persistedRoute\(row\.id\)/, 'a stopped member reads its persisted route')
-  assert.match(source, /controller\.inspect\(sessionId\)/, 'the persisted read uses the documented cold inspect')
+  assert.match(source, /controller\.inspect\(sessionId, timeout\)/, 'the persisted read uses the documented cold inspect')
+  // Reading a large log is proportional to its size (measured ~390 ms for 1.9 MB),
+  // and this sits on a tool call, so the read is bounded rather than open-ended.
+  assert.match(source, /AbortSignal\.timeout\(/, 'the cold read is bounded by a timeout')
   assert.match(source, /event\?\.type !== "request\/header"/, 'and folds request headers only')
   assert.match(source, /seam\.remember\(agent\.id, selection\.current\)/, 'observed routes are remembered')
   assert.match(source, /seam\.remember\(row\.id, selection\)/, 'a applied change is remembered too')
