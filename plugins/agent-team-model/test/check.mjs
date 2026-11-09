@@ -636,6 +636,23 @@ test('a resolved route has exactly two effort outcomes', () => {
   assert.throws(() => planTeammateModelChange(settings, current, {}), /at least one of/)
 })
 
+// --- spawn preflight ordering ---------------------------------------------
+
+test('the route preflight runs before the member is created', () => {
+  // A bad route must fail before spawnTeammate is called; otherwise the Team is
+  // left with a member that can never produce output. Confirmed against history
+  // too: all eight members in the Lead log went provisioning -> active, none
+  // stuck in provisioning, which is what a pre-creation failure looks like.
+  const source = readFileSync(new URL('../tool/index.js', import.meta.url), 'utf8')
+  const resolveAt = source.indexOf('const agentOptions = await resolveTeammateAgentOptions(')
+  const spawnAt = source.indexOf('ctx.agentTeams.spawnTeammate(')
+  assert.ok(resolveAt > 0 && spawnAt > 0, 'both steps are present')
+  assert.ok(resolveAt < spawnAt, 'the options (and their preflight) are resolved before spawning')
+  // And the preflight is inside that resolution, not a separate later call.
+  const resolver = source.slice(source.indexOf('async function resolveTeammateAgentOptions'), resolveAt)
+  assert.match(resolver, /await assertRoutable\(ctx, plan, signal\);/, 'the resolver performs the preflight')
+})
+
 // --- superseded records ---------------------------------------------------
 
 test('a record yields to a newer pending selection', () => {
