@@ -446,6 +446,10 @@ set_teammate_model: teammate "<name>" has no Session to change
   要真正清空只能**换一个新会话**（团队绑定在 Lead 的 Session 上），或者调高 `maxMembers`。
   验证时请复用同一个成员（`set_teammate_model` + `send_message` 就够了），不要为每个用例新建。
 
+- **未消费的改动确实会随重载丢失（已实测）。** 把一个停着的成员改成 `hy3` 后不唤醒它，
+  `list_agents` 立刻显示 `hy3`（来自内存记录）；重载插件后同一成员显示回退值，
+  记录消失。唤醒它之后才会写进会话日志、从此与插件内存无关。
+
 - **改动落在会话里，不是落在配置里。** `set_teammate_model` 写的是该成员的
   `model/selection` 事件（停着时先记在内存、下次启动再写）。所以：
   - 成员跑过一次之后，这个路由就写进它的会话日志了，插件重启不影响；
