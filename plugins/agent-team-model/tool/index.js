@@ -1,6 +1,6 @@
 import { loadHostPackage } from "../host.js";
 import { withTeammateAgentOptions } from "../als.js";
-import { isSupersededByPending, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, pickMemberModel, sameRoute } from "../route.js";
+import { isSupersededByPending, pickMemberRoute, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from "../route.js";
 // Host packages come from the running application rather than a static bare
 // import: a directory-linked bundle has no node_modules, so Node's walk-up from
 // this file cannot see the Host's copies and the module would fail to load.
@@ -508,15 +508,22 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 					const live = ctx.agents.get(member.id);
 					const session = live?.session ?? ctx.get("sessions")?.get(member.id);
 					const projection = session === void 0 ? void 0 : ctx.get("sessionProjections")?.stateOf(session, "modelSelection");
-					// A route chosen while the member was stopped is the newest intent, and
-					// it cannot show up in the projection yet. Failing that, the last route
-					// this plugin observed beats the roster's Lead-derived fallback.
-					const model = seam.peek(member.id)?.model
-						?? seam.recall(member.id)?.model
-						?? pickMemberModel(projection, live?.options);
-					return model === void 0 ? view : {
+					// A route chosen while the member was stopped is the newest intent and
+					// cannot show up in the projection yet; then the last route this plugin
+					// observed, which beats the roster's Lead-derived fallback. Model and
+					// effort are taken together so the row never describes a mix of two
+					// different routes - an effort-only change is displayed too.
+					const route = pickMemberRoute({
+						deferred: seam.peek(member.id),
+						observed: seam.recall(member.id),
+						projection,
+						liveOptions: live?.options
+					});
+					if (route === void 0) return view;
+					return {
 						...view,
-						model
+						model: route.model,
+						...route.reasoningEffort === void 0 ? {} : { reasoningEffort: route.reasoningEffort }
 					};
 				}));
 			}

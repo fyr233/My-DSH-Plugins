@@ -143,6 +143,27 @@ export function sameRoute(a, b) {
 }
 
 /**
+ * The route a roster row should display, from the best available source.
+ *
+ * Sources in order: a route chosen while the member was stopped (newest intent,
+ * not yet in the projection), the last route this plugin observed, then the
+ * Session projection's `pending ?? lastUsed`, then the agent's creation options.
+ * The model and the effort come from ONE source: mixing them would describe a
+ * route that never existed.
+ *
+ * @param sources - `{ deferred, observed, projection, liveOptions }`.
+ * @returns `{ model, reasoningEffort? }`, or undefined when nothing is known.
+ */
+export function pickMemberRoute({ deferred, observed, projection, liveOptions }) {
+  const route = deferred ?? observed ?? pickSelectedRoute(projection) ?? liveOptions
+  if (route?.model === undefined) return undefined
+  return {
+    model: route.model,
+    ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
+  }
+}
+
+/**
  * Whether a recorded route has been superseded by a newer pending selection.
  *
  * This plugin writes its route through `selectForNextRequest`, which leaves the

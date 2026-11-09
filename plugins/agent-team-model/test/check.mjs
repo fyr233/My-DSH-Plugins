@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isSupersededByPending, pickMemberModel, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from '../route.js'
+import { isSupersededByPending, pickMemberModel, pickMemberRoute, pickSelectedRoute, pinCreationRoute, planTeammateModelChange, planTeammateRoute, sameRoute } from '../route.js'
 import { withTeammateAgentOptions, currentTeammateAgentOptions } from '../als.js'
 import { apply as applyBridge } from '../bridge/index.js'
 import { createHostResolvers, loadHostPackage, resolveHostPackage } from '../host.js'
@@ -651,6 +651,34 @@ test('the route preflight runs before the member is created', () => {
   // And the preflight is inside that resolution, not a separate later call.
   const resolver = source.slice(source.indexOf('async function resolveTeammateAgentOptions'), resolveAt)
   assert.match(resolver, /await assertRoutable\(ctx, plan, signal\);/, 'the resolver performs the preflight')
+})
+
+// --- roster display -------------------------------------------------------
+
+test('a roster row takes model and effort from one source', () => {
+  const projection = { lastUsed: { provider: 'p', model: 'projected', reasoningEffort: 'low' }, pending: null }
+  const liveOptions = { model: 'creation' }
+  // The newest intent wins, and both fields come from it - not model from one
+  // source and effort from another, which would describe a route that never was.
+  assert.deepEqual(
+    pickMemberRoute({ deferred: { model: 'deferred', reasoningEffort: 'high' }, projection, liveOptions }),
+    { model: 'deferred', reasoningEffort: 'high' },
+  )
+  // An effort-only change is visible: the deferred route has no model of its own?
+  // No - a deferred route always carries one, so this is the observed one.
+  assert.deepEqual(
+    pickMemberRoute({ observed: { model: 'observed', reasoningEffort: 'medium' }, projection, liveOptions }),
+    { model: 'observed', reasoningEffort: 'medium' },
+  )
+  // Falling through to the projection keeps its effort too.
+  assert.deepEqual(
+    pickMemberRoute({ projection, liveOptions }),
+    { model: 'projected', reasoningEffort: 'low' },
+  )
+  // Creation options have no effort: the row shows model only, nothing invented.
+  assert.deepEqual(pickMemberRoute({ liveOptions }), { model: 'creation' })
+  // Nothing known: no row override at all.
+  assert.equal(pickMemberRoute({}), undefined)
 })
 
 // --- superseded records ---------------------------------------------------
