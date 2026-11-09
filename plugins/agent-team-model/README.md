@@ -63,7 +63,9 @@ set_teammate_model({ target: 'reviewer', model: 'other-model' })
   日志也不可读）才会报 `cannot resolve an effective provider and model`。
   > 早期版本对停着的成员一律报这个错，因为只看了内存；现在读它自己的日志，
   > 所以「只给 `model`」是最常用的调用方式。
-- 与 `spawn_teammate` 共用同一份白名单和 preflight；重复设置同一路由不会多落事件。
+- 与 `spawn_teammate` 共用同一份白名单和 preflight；**重复设置同一路由不会多落事件**
+  （实测：对一个已是目标路由的成员再设一次，其会话的 `model/selection` 计数前后不变，
+  仍是 2）。
 - **工具层不校验调用者角色，只校验目标是成员**。与 `spawn_teammate` 不同——后者由服务层
   `spawnAdmitted` 强制 Lead（`only the Team Lead can create teammates` / `TEAM_LEAD_REQUIRED`），
   而 `set_teammate_model` 换的是 `sessionController.agents` 这条接缝，服务层没有角色闸门。
