@@ -88,24 +88,59 @@ is prose and is left alone.
    by delta; the parser holds bytes only while the leading characters could still
    turn out to be a marker.
 
-## Config
+## Preferences
+
+Two surfaces write the same record: the Settings panel and the `thinking_guard`
+tool.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `markers` | `["<thinking>", "<thought>"]` | Opening text a body must start with. Matched literally, with no tag-name derivation. |
+| `enabled` | `true` | Off means the plugin does not touch the stream at all. |
+| `keepMarkers` | `false` | Keep the marker text inside the folded block, for checking why it was folded. |
+| `note` | the no-self-compaction sentence | The system-prompt line. |
+
+A marker is whatever the user saves. `<thinking>` closes with `</thinking>`;
+`<thinking type="x">` also closes with `</thinking>` (attributes only ever appear on
+the opening tag); anything that is not an angle-bracket tag — `【思考】` — has no
+inferable end and must be saved as `【思考】 => 【/思考】`. A marker with no closing
+text is **inert**: it is accepted but never reclassifies, because swallowing an
+unclosed body would leave the turn with no visible text at all.
+
+Preferences live in `~/.dsh/thinking-guard/settings.json`, written atomically, and
+behind one loopback-only route:
+
+```
+GET  /thinking-guard/api/settings
+POST /thinking-guard/api/settings   { markers, enabled, keepMarkers }
+```
+
+Why not the Host settings namespace: its editable-form projection reads schemastery
+internals (`meta.volatile` / `dict`), and a workspace-linked bundle cannot resolve
+`@deepseek-ai/schemastery` — importing it fails the load and violates this repo's
+"no dsh package imports" rule. `dsh-ui-sound` solved the same problem the same way.
+
+The patch layer still works for a first-run default:
 
 ```yaml
 - id: thinking-guard
   config:
-    enabled: true            # false disables the guard entirely
-    markers: ['<thinking>', '<analysis>', '<summary>', '<compacted-summary>']
+    enabled: true
+    markers: ['<thinking>', '<thought>', '【思考】 => 【/思考】']
+    keepMarkers: false
 ```
 
-`markers` takes opening tags; the closing tag is derived as `</name>`.
+A saved preference wins over the patch layer, so a GUI edit is not reverted on the
+next restart.
 
 ## Tests
 
 ```
-node test/check.mjs
+node test/check.mjs     # runs all three suites
 ```
 
-39 checks: marker matching, quote-in-prose, one-delta vs character-by-character
-equivalence, consecutive marker runs, mixed reasoning+answer, no duplicated
-deltas, interrupted assembly, truncated tag retention, delta-only streams, and
-pass-through of provider reasoning blocks, tool calls, usage and finish.
+| Suite | Checks | Covers |
+|---|---|---|
+| `check.mjs` | 44 | marker matching, chunking equivalence, mixed bodies, interrupted assembly, block numbering, replay clearing, lossless JSON, marker retention |
+| `core.test.mjs` | 15 | literal marker rules, closing derivation, inert markers, list limits |
+| `host.test.mjs` | 9 | Standard-Schema validation, file round-trip, loopback trust |

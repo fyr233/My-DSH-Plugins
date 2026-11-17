@@ -5,6 +5,8 @@ window.__ModuleLoader__.load({
     const React = require('react');
     const h = React.createElement;
     const NS = 'prompt-customizer-ui';
+    /** Host route owned by this plugin (see index.js ROUTE_PREFIX). */
+    const API_BASE = '/prompt-customizer/api/settings';
     const fields = ['identity', 'prefix', 'suffix'];
     const defaults = () => ({ identity: null, prefix: null, suffix: null });
     const dictionaries = {
@@ -78,28 +80,37 @@ window.__ModuleLoader__.load({
       .dsh-pc .pc-error{color:var(--dsw-alias-state-error-primary)}
       .dsh-pc .pc-success{color:var(--dsw-alias-state-success-primary)}
     `;
-    function unwrap(result) {
-      if (result?.ok === true) return result.value;
-      const detail = result?.error;
-      const error = new Error(typeof detail?.message === 'string' ? detail.message : typeof detail === 'string' ? detail : '');
-      error.code = detail?.code;
-      throw error;
-    }
     function localError(key) { const error = new Error(); error.key = key; return error; }
-    function parseDescription(description) {
-      const namespaces = description?.namespaces;
-      if (!Array.isArray(namespaces)) throw localError('invalid');
-      const exact = namespaces.find(row => row.ns === 'prompt-customizer' || row.ns === 'include:prompt-customizer');
-      const candidates = exact ? [exact] : namespaces.filter(row => typeof row.ns === 'string' && row.ns.endsWith(':prompt-customizer'));
-      if (!candidates.length) throw localError('missing');
-      if (candidates.length !== 1) throw localError('ambiguous');
-      const row = candidates[0];
-      const value = row.value?.overrides;
-      if (!value || fields.some(key => value[key] !== null && typeof value[key] !== 'string') || !Number.isSafeInteger(row.revision)) throw localError('invalid');
-      return { ns: row.ns, revision: row.revision, readOnly: description.writable !== true, overrides: Object.fromEntries(fields.map(key => [key, value[key]])) };
+    /** Validate the Host's overrides payload. */
+    function parsePreferences(body) {
+      const value = body?.value?.overrides;
+      if (body?.ok !== true || value === null || typeof value !== 'object') throw localError('invalid');
+      if (fields.some(key => value[key] !== null && typeof value[key] !== 'string')) throw localError('invalid');
+      return { readOnly: false, overrides: Object.fromEntries(fields.map(key => [key, value[key]])) };
+    }
+
+    async function readRemote() {
+      const response = await fetch(API_BASE, { cache: 'no-store', headers: { accept: 'application/json' } });
+      if (!response.ok) throw localError('missing');
+      return parsePreferences(await response.json());
+    }
+
+    async function writeRemote(overrides) {
+      const response = await fetch(API_BASE, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ overrides }),
+      });
+      const body = await response.json().catch(() => undefined);
+      if (!response.ok || body?.ok !== true) {
+        const error = new Error(body?.error?.message ?? 'save failed');
+        error.key = 'saveFailed';
+        throw error;
+      }
+      return parsePreferences(body);
     }
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.settings'],
+      inject: ['slots', 'locale'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, dictionaries), 'prompt-customizer: locale');
         const t = ctx.locale.bind(NS);
@@ -119,7 +130,7 @@ window.__ModuleLoader__.load({
           const readOnly = props.readOnly === true || snapshot?.readOnly === true;
           const disabled = !!busy || !snapshot || readOnly || needsReload;
           const dirty = !!snapshot && fields.some(key => snapshot.overrides[key] !== draft[key]);
-          const read = async () => parseDescription(unwrap(await ctx.remote.settings.describe()));
+          const read = readRemote;
           const accept = next => { setSnapshot(next); setDraft({ ...next.overrides }); setNeedsReload(false); };
           async function reload() {
             if (locked.current) return;
@@ -134,18 +145,12 @@ window.__ModuleLoader__.load({
             if (locked.current || disabled) return;
             locked.current = true;
             setBusy('save'); setError(null); setNotice(null);
-            let accepted = false;
             try {
               const overrides = reset ? defaults() : { ...draft };
-              unwrap(await ctx.remote.settings.update(snapshot.ns, { overrides }, snapshot.revision));
-              accepted = true;
-              const next = await read();
+              const next = await writeRemote(overrides);
               if (alive.current) { accept(next); setNotice(reset ? 'resetDone' : 'saved'); }
             } catch (cause) {
-              if (alive.current) {
-                setError({ key: accepted ? 'refreshFailed' : 'saveFailed', cause });
-                if (accepted || cause?.code === 'settings/conflict') setNeedsReload(true);
-              }
+              if (alive.current) setError({ key: cause.key ?? 'saveFailed', cause });
             } finally { locked.current = false; if (alive.current) setBusy(null); }
           }
           function change(key, value) {
@@ -184,7 +189,7 @@ window.__ModuleLoader__.load({
             snapshot && h('p', { className: 'pc-footnote' }, t(dirty ? 'unsaved' : 'unchanged')),
             h('p', { className: 'pc-footnote' }, t('refreshHint')),
             notice && h('div', { role: 'status', className: 'pc-status pc-success' }, t(notice)),
-            error && h('div', { role: 'alert', className: 'pc-status pc-error' }, t(error.key), '\n', errorText(error.cause), error.cause?.code === 'settings/conflict' ? `\n${t('conflict')}` : null));
+            error && h('div', { role: 'alert', className: 'pc-status pc-error' }, t(error.key), '\n', errorText(error.cause)));
         }
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section', id: 'prompt-customizer', order: 25, label: () => t('title'),

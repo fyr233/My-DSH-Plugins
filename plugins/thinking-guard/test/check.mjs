@@ -13,7 +13,8 @@ import {
   splitTaggedBody,
   stripTags,
   DEFAULT_MARKERS,
-} from '../index.js'
+} from '../guard.js'
+import { compileMarkers } from '../core.js'
 
 let checks = 0
 async function check(name, fn) {
@@ -172,11 +173,22 @@ await check('the same body split across deltas gives the same result', () => {
   }
 })
 
-await check('consecutive checkpoint blocks collapse into one reasoning run', () => {
-  assert.deepEqual(splitTaggedBody('<analysis>x</analysis>\n\n<summary>y</summary>'), {
+await check('consecutive markers collapse into one reasoning run', () => {
+  // Checkpoint tags are no longer defaults: they are opt-in, so this test passes
+  // them explicitly and shows that a user-added pair behaves like a built-in one.
+  const markers = compileMarkers(['<analysis>', '<summary>'])
+  assert.deepEqual(splitTaggedBody('<analysis>x</analysis>\n\n<summary>y</summary>', markers), {
     reasoning: 'xy',
     answer: '',
   })
+})
+
+await check('the default list no longer claims checkpoint tags', () => {
+  assert.equal(matchMarker('<analysis>x'), undefined)
+  assert.equal(matchMarker('<summary>x'), undefined)
+  assert.equal(matchMarker('<compacted-summary>x'), undefined)
+  assert.equal(matchMarker('<thinking>x')?.open, '<thinking>')
+  assert.equal(matchMarker('<thought>x')?.open, '<thought>')
 })
 
 await check('reasoning followed by a real answer keeps the answer', () => {
@@ -560,5 +572,45 @@ await check('a cleared replay state removes the key entirely', async () => {
   assert.equal(finish.type, 'finish')
   assert.equal('replayState' in finish, false, 'the key must be absent, not undefined')
 })
+
+
+// ------------------------------------- marker retention (debuggability)
+
+await check('by default the marker text is stripped from the folded block', async () => {
+  const chunks = await collect(guardStream(streamOf(blockStream(['<thinking>why</thinking>answer']))))
+  assert.deepEqual(assemble(chunks), [
+    { type: 'reasoning', text: 'why' },
+    { type: 'text', text: 'answer' },
+  ])
+})
+
+await check('keepMarkers leaves the marker inside the reasoning block', async () => {
+  const chunks = await collect(guardStream(streamOf(blockStream(['<thinking>why</thinking>answer'])), DEFAULT_MARKERS, { keepMarkers: true }))
+  assert.deepEqual(assemble(chunks), [
+    { type: 'reasoning', text: '<thinking>why</thinking>' },
+    { type: 'text', text: 'answer' },
+  ])
+})
+
+await check('keepMarkers works when the marker arrives split across deltas', async () => {
+  const chunks = await collect(guardStream(streamOf(blockStream(['<thi', 'nking>why</thi', 'nking>answer'])), DEFAULT_MARKERS, { keepMarkers: true }))
+  assert.deepEqual(assemble(chunks), [
+    { type: 'reasoning', text: '<thinking>why</thinking>' },
+    { type: 'text', text: 'answer' },
+  ])
+})
+
+await check('keepMarkers keeps an unclosed marker too', async () => {
+  const chunks = await collect(guardStream(streamOf([
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text: '<thinking>half' },
+  ]), DEFAULT_MARKERS, { keepMarkers: true }))
+  assert.deepEqual(assemble(chunks), [{ type: 'reasoning', text: '<thinking>half' }])
+})
+
+// The repository test runner executes this file only, so the two companion
+// suites are pulled in here; each reports its own total.
+await import('./core.test.mjs')
+await import('./host.test.mjs')
 
 console.log(`\n${checks} checks passed`)

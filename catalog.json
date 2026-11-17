@@ -28,6 +28,10 @@
       "tags": ["settings", "prompt", "persona"]
     },
     {
+      "dir": "agent-team-model",
+      "tags": ["agent-team", "model-routing", "delegation"]
+    },
+    {
       "dir": "approval-sound",
       "tags": ["approval", "notification", "windows"],
       "status": "retired",

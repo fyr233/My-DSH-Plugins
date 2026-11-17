@@ -1,15 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@local/dsh-plugin-thinking-guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Keep thinking out of the message body: reclassify leaked <thinking>/<analysis>/<summary> content into reasoning blocks as the model stream arrives, before it is assembled and stored.",
+  "description": "Keep thinking out of the message body: reclassify leaked <thinking>/<thought>/<analysis>/<summary> content into reasoning blocks as the model streams, with a user-editable marker list in Settings.",
   "license": "MIT",
   "main": "index.js",
   "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",
+    "./core": "./core.js",
+    "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./cordis.patch.yml": "./cordis.patch.yml",
@@ -17,6 +19,9 @@
   },
   "files": [
     "index.js",
+    "core.js",
+    "guard.js",
+    "client.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg"
@@ -38,6 +43,11 @@
     "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
     }
   }
 }

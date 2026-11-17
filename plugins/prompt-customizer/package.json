@@ -5,14 +5,11 @@
   "type": "module",
   "description": "Persistently customize identity, persona prefix and suffix for top-level Harness agents, with live settings and restore defaults.",
   "engines": {
-    "dsh": ">=0.2.1-rc.2 <0.3.0",
+    "dsh": ">=0.2.0 <0.3.0",
     "node": ">=22"
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.5"
-  },
   "scripts": {
-    "test": "node --test --test-isolation=none core.test.js"
+    "test": "node test/check.mjs"
   },
   "exports": {
     ".": "./index.js",
@@ -30,7 +27,8 @@
     "locale/*.json",
     "icon.svg",
     "README.md",
-    "VERIFICATION.md"
+    "VERIFICATION.md",
+    "test/check.mjs"
   ],
   "dsh": {
     "bundle": {
