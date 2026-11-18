@@ -54,7 +54,17 @@ assert.equal(results[0].message.source.kind, 'tool')
 assert.equal(results[0].turn, 2)
 assert.equal(results[0].step, 1)
 
-// The carrier is user-authored, single-text, and self-identifying.
+// The carrier must NOT claim to be a user message: declaring it as one made the
+// transcript render an empty bubble, because the loop appends every non-context
+// message to the surface. A `runtime-context` message is the one kind the loop
+// replaces with the context snapshot instead of appending.
+{
+  const probe = carrierMessage()
+  assert.equal(probe.source.kind, 'runtime-context', 'the carrier must not masquerade as user input')
+  assert.equal(probe.role, 'user', 'the message still occupies the user slot of the transcript')
+}
+
+// The carrier is single-text and self-identifying.
 const carrier = carrierMessage()
 assert.equal(carrier.role, 'user')
 assert.equal(carrier.content.length, 1)

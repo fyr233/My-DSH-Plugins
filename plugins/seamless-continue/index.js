@@ -65,8 +65,21 @@ export const Config = {
 
 const DEFAULT_COMMAND_DESCRIPTION = 'Resume the interrupted turn from the break, as if it had not stopped'
 
-/** Marker carried on the resume carrier so no user text ever triggers it. */
-const CARRIER_SOURCE = { kind: 'user' }
+/**
+ * Source of the resume carrier.
+ *
+ * `runtime-context`, not `user`: the carrier is not something a person typed, and
+ * declaring it as a user message made the transcript render an empty bubble once
+ * the loop started appending every non-context message to the surface.
+ *
+ * A `runtime-context` message is the one kind the loop does NOT append: it
+ * appends the runtime-context snapshot instead (agent-loop's "firstAttempt"
+ * branch). Session logs from 2026-10-18 show exactly that shape — the carrier
+ * queued at `agent/inbox/spliced` and only the context snapshot on the surface —
+ * so this restores the behaviour the plugin was written against rather than
+ * inventing a new one.
+ */
+const CARRIER_SOURCE = { kind: 'runtime-context' }
 
 /** Invisible carrier text: identity only, never sent to the model. */
 const CARRIER_MARK = '\u2063'
@@ -176,7 +189,7 @@ export function carrierMessage() {
  * @returns whether it is a resume carrier.
  */
 function isCarrier(message) {
-  return message.source?.kind === 'user'
+  return message.source?.kind === CARRIER_SOURCE.kind
     && message.content.length === 1
     && message.content[0]?.type === 'text'
     && message.content[0].text === CARRIER_MARK
