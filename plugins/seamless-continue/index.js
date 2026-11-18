@@ -65,13 +65,6 @@ export const Config = {
 
 const DEFAULT_COMMAND_DESCRIPTION = 'Resume the interrupted turn from the break, as if it had not stopped'
 
-/**
- * Turn endings the user can resume. `aborted` is a stop or an interrupt,
- * `interrupted` is a turn closed by restart recovery, and `max-tokens` is a
- * reply cut off by the output limit.
- */
-const RESUMABLE_ENDS = new Set(['aborted', 'interrupted', 'max-tokens'])
-
 /** Marker carried on the resume carrier so no user text ever triggers it. */
 const CARRIER_SOURCE = { kind: 'user' }
 
@@ -121,12 +114,19 @@ export function foldResumeState(events) {
 }
 
 /**
- * Whether the session's most recent turn can be resumed from its ending.
- * @param reason - the last recorded `turn/end` reason, if any.
- * @returns whether `/continue` accepts this session.
+ * Whether `/continue` accepts a session that ended this way.
+ *
+ * Always true. The ending cannot answer "is there work left": a turn that the
+ * model abandoned mid-task, and a turn that ended because the model wrote a
+ * summary and stopped, both record `completed`. Since the command is an explicit
+ * human request, the human decides — this function exists only so callers and
+ * tests have one place to ask.
+ *
+ * @param _reason - the last recorded `turn/end` reason, if any. Ignored.
+ * @returns always `true`.
  */
-export function isResumable(reason) {
-  return reason !== undefined && RESUMABLE_ENDS.has(reason.kind)
+export function isResumable(_reason) {
+  return true
 }
 
 /**
@@ -200,13 +200,9 @@ export function apply(ctx, config = {}) {
         const session = ctx.sessions.get(agent.id)
         if (session === undefined) return { kind: 'error', text: '会话未连接。' }
         if (agent.status === 'running') return { kind: 'error', text: '仍在生成中：先停止，再执行 /continue。' }
-        const { lastTurnEnd } = foldResumeState(session.snapshotEvents())
-        if (!isResumable(lastTurnEnd)) {
-          return { kind: 'error', text: '最近一轮已正常结束，没有可接续的中断。' }
-        }
         resuming.add(agent.id)
         agent.followup(carrierMessage())
-        return { kind: 'success', text: '已从断点继续。' }
+        return { kind: 'success', text: '已从末尾继续。' }
       },
     })
     return () => {

@@ -36,7 +36,7 @@ const loop = foldResumeState(interruptedToolLoop)
 assert.equal(loop.pending.length, 0, 'a closed turn owes nothing')
 assert.equal(isResumable(loop.lastTurnEnd), true)
 assert.equal(isResumable(foldResumeState(interruptedAnswer).lastTurnEnd), true)
-assert.equal(isResumable(foldResumeState(completed).lastTurnEnd), false)
+assert.equal(isResumable(foldResumeState(completed).lastTurnEnd), true, 'a completed turn is resumable on request')
 
 // A turn still OPEN when the process died: the call has no result yet.
 const openLoop = interruptedToolLoop.slice(0, 5)
@@ -62,11 +62,11 @@ assert.equal(carrier.content[0].type, 'text')
 assert.ok(typeof carrier.id === 'string' && carrier.id.length > 0)
 assert.notEqual(carrierMessage().id, carrier.id, 'each carrier has a fresh identity')
 
-// Only aborted, interrupted, and max-tokens are resumable.
-for (const [kind, expected] of [['aborted', true], ['interrupted', true], ['max-tokens', true], ['completed', false], ['error', false], ['blocked', false]]) {
-  assert.equal(isResumable({ kind }), expected, `${kind} resumable?`)
+// Every ending is resumable: the ending cannot tell "work left" from "done".
+for (const kind of ['aborted', 'interrupted', 'max-tokens', 'completed', 'error', 'blocked', 'forked']) {
+  assert.equal(isResumable({ kind }), true, `${kind} must be resumable`)
 }
-assert.equal(isResumable(undefined), false)
+assert.equal(isResumable(undefined), true, 'a session with no recorded ending is resumable too')
 
 // --- wiring: the command, the rewrite, and the disarm path -------------------
 /** A minimal Cordis-like context that records what apply() registers. */
@@ -118,16 +118,21 @@ assert.ok(Config['~standard'].validate({ nope: true }).issues, 'unknown keys are
   assert.equal(registered.effects.length, 2, 'command and listener are both owned effects')
 }
 
-// A running agent and a finished turn are both refused before arming.
+// A running agent is refused (it cannot queue a follow-up mid-generation), but a
+// FINISHED turn is not: the ending cannot tell "work left" from "done".
 {
   const running = fakeContext({ status: 'running' })
   apply(running.ctx, {})
   assert.equal(running.registered.commands[0].handler({ agent: running.agent }).kind, 'error')
   assert.equal(running.followups.length, 0)
 
-  const finished = fakeContext({ lastTurnEnd: { kind: 'completed' } })
-  apply(finished.ctx, {})
-  assert.equal(finished.registered.commands[0].handler({ agent: finished.agent }).kind, 'error')
+  for (const lastTurnEnd of [{ kind: 'completed' }, { kind: 'error' }, { kind: 'blocked' }, undefined]) {
+    const finished = fakeContext({ lastTurnEnd })
+    apply(finished.ctx, {})
+    const result = finished.registered.commands[0].handler({ agent: finished.agent })
+    assert.equal(result.kind, 'success', `${JSON.stringify(lastTurnEnd)} must be resumable`)
+    assert.equal(finished.followups.length, 1, 'a carrier is queued')
+  }
 }
 
 // An armed resume whose step no longer carries the carrier disarms itself, so a

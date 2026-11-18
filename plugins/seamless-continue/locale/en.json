@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Seamless Continue",
-    "description": "Resume an interrupted turn with /continue (continue / resume): the model continues its own output or tool loop instead of restarting."
+    "description": "Continue the previous turn with /continue (continue / resume): the model picks up its own output or tool loop instead of being asked again. Works after any ending, including a normal one."
   }
 }
